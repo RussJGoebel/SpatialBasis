@@ -1,0 +1,49 @@
+Package: downscaling
+Title: Toolset for Rescaling OCO2 Target Mode Observations
+Version: 0.0.0.9500
+Authors@R:
+  c(person("Russell", "Goebel",, "rgoebel@bu.edu", role = c("aut", "cre")),
+    person("Jonathan", "Dooley",, "jdooley@georgetown.edu", role = c("aut")),
+    person("Taylor", "Jones",, "taylor.jones@georgetown.edu", role = c("aut")))
+Description: Toolset for Rescaling OCO2 Target Mode Observations for high spatial resolution.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends: 
+    R (>= 3.5)
+Imports:
+    prettymapr,
+    geosphere,
+    paletteer,
+    ggspatial,
+    devtools,
+    ggplot2,
+    leaflet,
+    cowplot,
+    Matrix,
+    timeR,
+    spdep,
+    dplyr,
+    terra,
+    ncdf4,
+    cPCG,
+    sf,
+    magrittr,
+    randtoolbox,
+    progressr,
+    qrng,
+    furrr,
+    future
+LazyData: true
+LazyDataCompression: xz
+Suggests: 
+    tidyverse,
+    rmarkdown,
+    tinytex,
+    knitr,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+URL: https://github.com/RussJGoebel/downscaling
+BugReports: https://github.com/RussJGoebel/downscaling/issues
+Config/testthat/edition: 3
