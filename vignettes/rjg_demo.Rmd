@@ -1,0 +1,122 @@
+---
+title: "Demo"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Demo}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(downscaling)
+library(tidyverse)
+```
+
+We have two example datasets in this package:
+
+The `target_grid` dataset consists of a 333.33 meter grid along with landcover metadata. 
+
+```{r}
+head(target_grid)
+```
+
+The `soundings` dataset consists of OCO-2 satellite soundings and in particular includes the SIF_757nm measurements.
+
+```{r}
+head(soundings)
+```
+
+## Built-in Visualization Function
+
+```{r}
+leaflet_visualization(target_grid, column = "dominant_class")
+```
+
+
+```{r}
+leaflet_visualization(soundings, column = "SIF_757nm")
+```
+
+
+## Grid generation functions
+
+```{r}
+res <- 333 # 333 meters
+
+example_grid333 <- generate_grid(soundings = soundings,
+                   res = res,
+                   buffer = 2*res,
+                   grid_shape = "buffered_convex_hull")
+
+res <- 50
+
+example_grid50 <- generate_grid(soundings = soundings,
+                   res = res,
+                   buffer = 2*res,
+                   grid_shape = "buffered_convex_hull")
+
+ggplot()+geom_sf(data = example_grid50)
+ggplot()+geom_sf(data = example_grid333)
+```
+
+## Area-Intersection Function
+
+The `compute_A_matrix` function uses parallel processing to compute the intersection areas.
+
+```{r}
+A <- compute_A_matrix(target_grid,soundings)
+```
+
+## Downscaling
+
+The downscaling function can be used to obtain the downscaled results
+
+```{r}
+d <- downscale(soundings,
+               target_grid,
+               A = A, # area intersection matrix
+               lambda = 16, # scaling parameters
+               rho = 1)
+```
+
+```{r}
+leaflet_visualization(d,"posterior_mean")
+```
+
+# Cross-validation
+
+Lambda should ideally be selected using cross-validation.
+
+```{r}
+#candidate_lambda <- 1:20
+#k <- 10
+#reps <- 1
+
+#result <- k_folds_cv_lambda(soundings,
+#                              target_grid,
+#                              candidate_lambda,
+#                              k,
+#                              reps,
+#                              column = "SIF_757nm",
+#                              grid_shape = c("rectangle","other"),
+#                              precision_matrix = NULL,
+#                              W = NULL,
+#                              A = NULL,
+#                              AtA = NULL,
+#                              Atb = NULL,
+#                              rho = 1,
+#                              lambda = 4,
+#                             linear_solver = c("cg","pcg","cholesky"),
+#                              mc.cores = 16)
+
+#best_lambda <- which.min(result)
+```
+
+

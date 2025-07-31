@@ -73,13 +73,13 @@ integrate_region_list_parallel <- function(
           if (is.null(region)) {
             return(rep(NA_real_, basis$k))
           }
-          downscaling::evaluate_integral(rule, region, basis, index = idx)
+          SpatialBasis::evaluate_integral(rule, region, basis, index = idx)
         },
         region_list,
         indices,
         SIMPLIFY = FALSE,
         future.globals = list(rule = rule, basis = basis),
-        future.packages = c("downscaling", "sf"),
+        future.packages = c("sf", "SpatialBasis"),
         future.seed = TRUE
       )
 
@@ -91,13 +91,13 @@ integrate_region_list_parallel <- function(
         if (is.null(region)) {
           return(rep(NA_real_, basis$k))
         }
-        downscaling::evaluate_integral(rule, region, basis, index = idx)
+        SpatialBasis::evaluate_integral(rule, region, basis, index = idx)
       },
       region_list,
       indices,
       SIMPLIFY = FALSE,
       future.globals = list(rule = rule, basis = basis),
-      future.packages = c("downscaling", "sf"),
+      future.packages = c("SpatialBasis", "sf"),
       future.seed = TRUE
     )
 
@@ -159,7 +159,7 @@ integrate_region_list_batched_parallel <- function(
             if (is.null(region)) {
               return(rep(NA_real_, basis$k))
             }
-            downscaling::evaluate_integral(rule, region, basis, index = idx)
+            SpatialBasis::evaluate_integral(rule, region, basis, index = idx)
           })
         },
         future.seed = TRUE
@@ -174,7 +174,7 @@ integrate_region_list_batched_parallel <- function(
           if (is.null(region)) {
             return(rep(NA_real_, basis$k))
           }
-          downscaling::evaluate_integral(rule, region, basis, index = idx)
+          SpatialBasis::evaluate_integral(rule, region, basis, index = idx)
         })
       },
       future.seed = TRUE

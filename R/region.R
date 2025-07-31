@@ -120,11 +120,11 @@ triangulate_sf <- function(geom) {
     geom
   }
 
-  # For each polygon, check if it's a triangle
   out <- list()
   for (i in seq_along(polys)) {
     p <- polys[i]
     coords <- sf::st_coordinates(p)
+   # print(i)
 
     # Extract unique (X,Y) of the exterior ring (L2==1)
     ext_coords <- coords[coords[, "L2"] == 1, c("X", "Y"), drop = FALSE]
@@ -143,10 +143,22 @@ triangulate_sf <- function(geom) {
       tris <- sf::st_collection_extract(tris, "POLYGON")
       out <- c(out, sf::st_cast(tris, "POLYGON"))
     }
+
+
+
   }
 
   # Combine results
-  sf::st_sfc(out, crs = sf::st_crs(geom))
+  out_flat <- unlist(lapply(out, function(g) {
+    if (inherits(g, "sfc")) {
+      as.list(g)  # extract sfgs from an sfc
+    } else {
+      list(g)     # wrap single sfg in list
+    }
+  }), recursive = FALSE)
+
+
+  return(sf::st_sfc(out_flat, crs = sf::st_crs(geom)))
 }
 
 #' Wrap a triangle geometry into a region_atomic object
@@ -182,9 +194,20 @@ wrap_atomic <- function(tri) {
 #'
 #' @export
 make_region_composite <- function(triangles) {
+  if (!inherits(triangles, "sfc")) {
+    # Try coercion, assuming list of sfgs or sfcs
+    triangles <- sf::st_sfc(unlist(lapply(triangles, function(g) {
+      if (inherits(g, "sfc")) {
+        as.list(g)
+      } else {
+        list(g)
+      }
+    }), recursive = FALSE))
+  }
+
   parts <- lapply(triangles, wrap_atomic)
   areas <- as.numeric(sf::st_area(triangles))
-  region_composite(parts, areas)
+  region_composite(parts[areas > 0], areas[areas > 0])
 }
 
 #' Parallel intersection and triangulation with progress reporting
@@ -220,6 +243,7 @@ intersect_then_triangulate_parallel <- function(obs_polygons, stratum_polygons) 
   p <- progressr::progressor(steps = nrow(obs_polygons))
 
   future.apply::future_lapply(seq_len(nrow(obs_polygons)), function(i) {
+    print(i)
     p()
     obs <- obs_polygons[i, , drop = FALSE]
 
@@ -232,6 +256,7 @@ intersect_then_triangulate_parallel <- function(obs_polygons, stratum_polygons) 
     if (length(tris) == 0) return(NULL)
 
     # Step 3: Wrap
+    if (any(sf::st_is_empty(tris))) stop("Some empty triangle exists i guess")
     make_region_composite(tris)
   })
 }

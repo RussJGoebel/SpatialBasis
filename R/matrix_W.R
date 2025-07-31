@@ -42,35 +42,39 @@ generate_neighbor_matrix <- function(nrow,ncol){
 
 }
 
-#' Title
+#' Compute Neighborhood (W) Matrix for Spatial Grid
 #'
-#' @param target_grid
-#' @param grid_shape
+#' @param target_grid An `sf` object representing the spatial grid.
+#' @param grid_shape Either `"rectangle"` or `"other"`. Determines method of neighbor calculation.
+#' @param adjacency `"queen"` (default) or `"rook"`; only relevant if `grid_shape = "other"`.
 #'
-#' @return
+#' @return A sparse row-normalized neighbor matrix `W`.
 #' @export
-#'
-#' @examples
 compute_W_matrix <- function(target_grid,
-                             grid_shape = c("rectangle","other")){
+                             grid_shape = c("rectangle", "other"),
+                             adjacency = c("queen", "rook")) {
 
   grid_shape <- match.arg(grid_shape)
+  adjacency <- match.arg(adjacency)
 
-  if(grid_shape == "rectangle"){
+  if (grid_shape == "rectangle") {
     n_row <- max(target_grid$row)
     n_col <- max(target_grid$col)
 
-    W <- generate_neighbor_matrix(n_row,n_col)
+    W <- generate_neighbor_matrix(n_row, n_col)  # assumes this returns binary matrix
     W <- row_normalize_matrix(W)
 
-  }
-  if(grid_shape == "other"){
-    message("Assuming grid is not rectangular. Computing neighbor matrix using the spdep package.")
-    W <- Matrix::Matrix(spdep::nb2mat(spdep::poly2nb(target_grid),style = "W"))
+  } else if (grid_shape == "other") {
+    message(sprintf("Computing neighbor matrix with %s adjacency.", adjacency))
+
+    queen <- (adjacency == "queen")
+
+    nb <- spdep::poly2nb(target_grid, queen = queen)
+    mat <- spdep::nb2mat(nb, style = "W", zero.policy = TRUE)
+    W <- Matrix::Matrix(mat, sparse = TRUE)
   }
 
   return(W)
-
 }
 
 row_normalize_matrix <- function(M){

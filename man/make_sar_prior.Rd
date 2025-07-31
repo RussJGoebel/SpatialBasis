@@ -4,7 +4,14 @@
 \alias{make_sar_prior}
 \title{Make a SAR Prior}
 \usage{
-make_sar_prior(basis, rho = 0.99, tau = 1, W = NULL, scaling_weights = NULL)
+make_sar_prior(
+  basis,
+  rho = 0.99,
+  tau = 1,
+  W = NULL,
+  scaling_weights = NULL,
+  adjacency = "queen"
+)
 }
 \arguments{
 \item{basis}{A \code{geometry_basis} object.}

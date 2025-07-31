@@ -12,7 +12,8 @@ make_matern_fourier_basis(
   K = 200,
   domain = c(0, 1, 0, 1),
   crs = NULL,
-  metadata = list()
+  metadata = list(),
+  include_constant = TRUE
 )
 }
 \arguments{
@@ -32,10 +33,8 @@ make_matern_fourier_basis(
 }
 \value{
 A basis object of class "function_basis".
-
-A basis object of class "function_basis".
 }
 \description{
-Creates a cosine basis over a square embedding of the input rectangle,
-sorted by decreasing eigenvalue.
+Creates an orthonormal cosine basis over a square embedding of the input rectangle,
+sorted by decreasing Matérn covariance eigenvalue.
 }

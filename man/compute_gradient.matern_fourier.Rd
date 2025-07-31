@@ -13,7 +13,7 @@
 A named list with components:
 \describe{
 \item{tau}{Derivative w.r.t. \code{tau}.}
-\item{kappa}{Derivative w.r.t. \code{kappa}.}
+\item{kappa2}{Derivative w.r.t. \code{kappa2}.}
 \item{alpha}{Derivative w.r.t. \code{alpha}.}
 }
 }
@@ -21,7 +21,7 @@ A named list with components:
 Computes the derivative of the precision matrix with respect to each hyperparameter:
 \itemize{
 \item \code{tau}: scaling precision.
-\item \code{kappa}: range parameter.
+\item \code{kappa2}: range parameter.
 \item \code{alpha}: smoothness parameter.
 }
 All derivatives are returned as sparse diagonal matrices.

@@ -249,23 +249,7 @@ make_constant_basis <- function(k = 1, crs = NULL, metadata = list()) {
 #' Construct a Sine/Cosine Spatial Basis Matching Matérn SPDE Eigenstructure
 #' with Automatic Square Embedding
 #'
-#' Creates a cosine basis over a square embedding of the input rectangle,
-#' sorted by decreasing eigenvalue.
-#'
-#' @param max_frequency Integer: maximum frequency index in each dimension.
-#' @param kappa Positive numeric: kappa parameter controlling range.
-#' @param alpha Positive numeric: alpha parameter controlling smoothness.
-#' @param K Integer: number of basis functions to keep.
-#' @param domain Numeric vector length 4: c(xmin, xmax, ymin, ymax).
-#' @param crs Optional CRS.
-#' @param metadata Optional metadata list.
-#'
-#' @return A basis object of class "function_basis".
-#' @export
-#' Construct a Sine/Cosine Spatial Basis Matching Matérn SPDE Eigenstructure
-#' with Automatic Square Embedding
-#'
-#' Creates a cosine basis over a square embedding of the input rectangle,
+#' Creates an orthonormal cosine basis over a square embedding of the input rectangle,
 #' sorted by decreasing Matérn covariance eigenvalue.
 #'
 #' @param max_frequency Integer: maximum frequency index in each dimension.
@@ -285,9 +269,10 @@ make_matern_fourier_basis <- function(
     K = 200,
     domain = c(0,1,0,1),
     crs = NULL,
-    metadata = list()
+    metadata = list(),
+    include_constant = TRUE
 ) {
-  stopifnot(length(domain)==4)
+  stopifnot(length(domain) == 4)
   xmin0 <- domain[1]
   xmax0 <- domain[2]
   ymin0 <- domain[3]
@@ -296,32 +281,30 @@ make_matern_fourier_basis <- function(
   dx <- xmax0 - xmin0
   dy <- ymax0 - ymin0
   L <- max(dx, dy)
+  cx <- (xmin0 + xmax0) / 2
+  cy <- (ymin0 + ymax0) / 2
 
-  xmin <- xmin0
-  xmax <- xmin0 + L
-  ymin <- ymin0
-  ymax <- ymin0 + L
+  xmin <- cx - L/2
+  xmax <- cx + L/2
+  ymin <- cy - L/2
+  ymax <- cy + L/2
 
   scale_x <- xmax - xmin
   scale_y <- ymax - ymin
 
-  # All frequency combinations
+  # Frequency grid
   kx_all <- rep(0:max_frequency, each = max_frequency + 1)
   ky_all <- rep(0:max_frequency, times = max_frequency + 1)
-  #keep <- !(kx_all==0 & ky_all==0)
-  kx <- kx_all#[keep]
-  ky <- ky_all#[keep]
+  n_all <- length(kx_all)
 
-  # Laplacian eigenvalues
-  laplacian_lambda <- pi^2*(kx^2 + ky^2)/L^2
-
-  # For sorting only
+  # Laplacian eigenvalues and Matérn eigenvalues
+  laplacian_lambda <- pi^2 * (kx_all^2 + ky_all^2)
   matern_lambda <- (kappa^2 + laplacian_lambda)^(-alpha)
 
   # Sort by decreasing covariance eigenvalue
-  o <- order(matern_lambda, decreasing=TRUE)
-  kx <- kx[o]
-  ky <- ky[o]
+  o <- order(matern_lambda, decreasing = TRUE)
+  kx <- kx_all[o]
+  ky <- ky_all[o]
   laplacian_lambda <- laplacian_lambda[o]
   matern_lambda <- matern_lambda[o]
 
@@ -331,15 +314,16 @@ make_matern_fourier_basis <- function(
   laplacian_lambda <- laplacian_lambda[seq_len(K)]
   matern_lambda <- matern_lambda[seq_len(K)]
 
+  # Evaluation function with orthonormal scaling
   evaluate_fn <- function(coords) {
-    x_scaled <- (coords[,1] - xmin)/scale_x
-    y_scaled <- (coords[,2] - ymin)/scale_y
+    x_scaled <- (coords[,1] - xmin) / scale_x
+    y_scaled <- (coords[,2] - ymin) / scale_y
     n <- nrow(coords)
-    mat <- matrix(NA_real_, nrow=n, ncol=K)
-    for(i in seq_len(K)){
-      fx <- if(kx[i]==0) rep(1,n) else cos(kx[i]*pi*x_scaled)
-      fy <- if(ky[i]==0) rep(1,n) else cos(ky[i]*pi*y_scaled)
-      mat[,i] <- fx * fy
+    mat <- matrix(NA_real_, nrow = n, ncol = K)
+    for(i in seq_len(K)) {
+      fx <- if (kx[i] == 0) rep(1, n) else sqrt(2) * cos(kx[i] * pi * x_scaled)
+      fy <- if (ky[i] == 0) rep(1, n) else sqrt(2) * cos(ky[i] * pi * y_scaled)
+      mat[, i] <- fx * fy
     }
     mat
   }
@@ -359,12 +343,15 @@ make_matern_fourier_basis <- function(
         matern_lambda_for_sorting = matern_lambda,
         domain_rectangle = domain,
         domain_square = c(xmin, xmax, ymin, ymax),
-        side_length = L
+        side_length = L,
+        constant_mode_included = include_constant,
+        constant_mode_precision = kappa^(2 * alpha)  # could override to (1 - rho)^2 if desired
       ),
       metadata
     )
   )
 }
+
 
 #' Project a Covariate onto a Spatial Field Basis
 #'
@@ -436,5 +423,151 @@ make_covariate_basis <- function(spatial_field,
 }
 
 
+## NYSTROM ADDON ###############################################################
+
+# Isotropic Matérn covariance (nu=1.5 example)
+make_matern_cov_fn <- function(range = 1, sigma2 = 1, nu = 1.5) {
+  function(x1, x2) {
+    stopifnot(ncol(x1) == ncol(x2))  # allow any dimension
+    dists <- fields::rdist(x1, x2)   # returns [nrow(x1), nrow(x2)] matrix
+
+    if (nu == 0.5) {
+      sigma2 * exp(-dists / range)
+    } else if (nu == 1.5) {
+      scaled <- sqrt(3) * dists / range
+      sigma2 * (1 + scaled) * exp(-scaled)
+    } else if (nu == 2.5) {
+      scaled <- sqrt(5) * dists / range
+      sigma2 * (1 + scaled + scaled^2 / 3) * exp(-scaled)
+    } else {
+      stop("Currently only ν = 0.5, 1.5, 2.5 supported")
+    }
+  }
+}
 
 
+#' Construct a Nyström Basis Using a Covariance Function and Landmark Points
+#'
+#' Builds a set of approximate eigenfunctions of a Gaussian process covariance operator
+#' using the Nyström method. The basis functions are smooth and globally supported,
+#' formed as linear combinations of kernel evaluations at landmark locations.
+#'
+#' You may optionally normalize the basis functions using L2 normalization to improve
+#' numerical stability and interpretability. This preserves the diagonal structure
+#' of the prior covariance and avoids basis rotations.
+#'
+#' If a `domain` is provided, landmark and evaluation coordinates are rescaled to
+#' \[0, 1\]^2 to match the reference domain used when constructing the basis.
+#'
+#' @param cov_fn A function taking two matrices `x1` and `x2` (each of shape `[n, d]`)
+#'   and returning a `[nrow(x1), nrow(x2)]` covariance matrix. Must support vectorized input.
+#' @param landmarks A numeric matrix `[m, d]` of landmark locations.
+#' @param epsilon Small scalar added to the diagonal of `K_UU` for numerical stability.
+#' @param k Optional. Number of basis functions to retain (defaults to all available).
+#' @param crs Optional coordinate reference system (passed to output `function_basis`).
+#' @param metadata Optional list of metadata for downstream use.
+#' @param domain Optional length-4 numeric vector `c(xmin, xmax, ymin, ymax)` for rescaling
+#'   both landmarks and evaluation coordinates to the unit square.
+#' @param normalize Character string specifying normalization strategy.
+#'   Must be one of `"none"` (default) or `"l2"`.
+#'   - `"none"`: return raw Nyström basis (scaled as-is).
+#'   - `"l2"`: empirically normalize basis functions to have unit L2 norm over the unit square.
+#' @param normalization_points Number of sample points used for computing L2 norms (only used if `normalize = "l2"`).
+#'
+#' @return A `function_basis` object with class `"nystrom"`, containing:
+#'   - An `evaluate_fn` for computing the basis matrix at new locations,
+#'   - The number of basis functions `k`,
+#'   - The original domain, landmarks, eigenvectors/values, and scaling metadata.
+#'
+#' @export
+
+make_nystrom_basis <- function(cov_fn,
+                               landmarks,
+                               epsilon = 1e-6,
+                               k = NULL,
+                               crs = NULL,
+                               metadata = list(),
+                               domain = NULL,
+                               normalize = c("none","l2"),
+                               normalization_points = 1e4) {
+  normalize <- match.arg(normalize)
+  stopifnot(is.function(cov_fn))
+  stopifnot(is.matrix(landmarks))
+  m <- nrow(landmarks)
+
+  if (!is.null(domain)) {
+    stopifnot(length(domain) == 4)
+    xmin <- domain[1]
+    xmax <- domain[2]
+    ymin <- domain[3]
+    ymax <- domain[4]
+    scale_x <- xmax - xmin
+    scale_y <- ymax - ymin
+
+    rescale <- function(coords) {
+      coords <- as.matrix(coords)
+      cbind((coords[, 1] - xmin) / scale_x,
+            (coords[, 2] - ymin) / scale_y)
+    }
+
+    landmarks <- rescale(landmarks)
+  } else {
+    rescale <- identity
+  }
+
+  K_UU <- cov_fn(landmarks, landmarks)
+  K_UU <- K_UU + epsilon * diag(m)
+
+  message("Computing eigendecomposition for Nyström basis...")
+  eig <- eigen(K_UU, symmetric = TRUE)
+  Lambda <- eig$values
+  V <- eig$vectors
+
+  keep <- if (is.null(k)) length(Lambda) else min(k, length(Lambda))
+  Lambda_k <- Lambda[1:keep]
+  V_k <- V[, 1:keep, drop = FALSE]
+
+  if (any(Lambda_k <= 0)) stop("Non-positive eigenvalues encountered. Try increasing epsilon.")
+
+  evaluate_fn <- function(coords) {
+    coords_scaled <- rescale(coords)
+    K_SU <- cov_fn(coords_scaled, landmarks)
+    K_SU %*% V_k
+  }
+
+  if (normalize == "l2") {
+    message("Applying L2 normalization")
+    set.seed(1)
+    grid_pts <- matrix(runif(2 * normalization_points), ncol = 2)
+
+    K_SU <- cov_fn(grid_pts, landmarks)  # skip rescaling; grid_pts already in [0,1]^2
+    Phi <- K_SU %*% V_k
+
+    norms <- sqrt(colMeans(Phi^2))
+    norms[norms == 0] <- 1
+    evaluate_fn <- function(coords) {
+      coords_scaled <- rescale(coords)
+      K_SU <- cov_fn(coords_scaled, landmarks)
+      sweep(K_SU %*% V_k, 2, norms, "/")
+    }
+  }
+
+  make_function_basis(
+    evaluate_fn = evaluate_fn,
+    k = keep,
+    crs = crs,
+    type = "nystrom",
+    metadata = c(
+      list(
+        landmarks = landmarks,
+        epsilon = epsilon,
+        eigenvalues = Lambda_k,
+        eigenvectors = V_k,
+        K_UU = K_UU,
+        original_domain = domain,
+        normalization = normalize
+      ),
+      metadata
+    )
+  )
+}

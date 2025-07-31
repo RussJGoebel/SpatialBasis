@@ -1,4 +1,4 @@
-Package: downscaling
+Package: SpatialBasis
 Title: Toolset for Rescaling OCO2 Target Mode Observations
 Version: 0.0.0.9500
 Authors@R:

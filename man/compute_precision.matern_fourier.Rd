@@ -10,14 +10,10 @@
 \item{prior}{An object of class "matern_fourier".}
 }
 \value{
-A sparse diagonal precision matrix (class "Diagonal").
-
 A sparse diagonal precision matrix.
 }
 \description{
-Given a Matérn-Fourier prior object, computes the precision matrix:
-\deqn{
-  Q = \tau \, \mathrm{diag}\Bigl[\bigl(\kappa^2 + \lambda_j^{Laplacian}\bigr)^{\alpha}\Bigr]
-}
-where \eqn{\lambda_j^{Laplacian}} are the stored Laplacian eigenvalues of the basis.
+Computes the diagonal precision matrix:
+Q_j = tau * (kappa^2 + Laplacian_lambda_j)^alpha
+The first entry (if constant_mode_included) may be overridden
 }

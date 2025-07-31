@@ -1,0 +1,378 @@
+---
+title: "spatial_modeling_demo"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{spatial_modeling_demo}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(SpatialBasis)
+```
+
+```{r}
+# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
+# Load packages
+library(sf)
+library(Matrix)
+#library(downscaling)  # replace with your actual package name
+
+# Step 1: Construct Basis and Priors
+
+# -- Response field: SAR prior on a geometry basis (from soundings)
+basis_resp <- make_geometry_basis(target_grid)
+prior_resp <- make_sar_prior(basis_resp, tau = 30)
+
+response_field <- make_spatial_field(
+  basis = basis_resp,
+  prior = prior_resp,
+  label = "SIF_757nm"
+)
+
+# -- Covariate field: piecewise constant on the grid (mean_value)
+basis_cov <- make_piecewise_constant_basis(target_grid, values = target_grid$mean_value)
+prior_cov <- make_flat_prior(basis_cov)  # treated as fixed effect
+
+covariate_field <- make_spatial_field(
+  basis = basis_cov,
+  prior = prior_cov,
+  label = "mean_value"
+)
+
+# Step 2: Prepare and Fit the Model
+1+1
+# Combine both fields into a list
+field_list <- list(response_field, covariate_field)
+
+# Prepare integrated design matrices
+prepared_list <- prepare_spatial_field_list(
+  field_list,
+  observation_data = soundings,
+  response = "SIF_757nm",
+  parallel = TRUE,
+  n_workers = future::availableCores()
+)
+
+# Stack matrices and priors
+stacked <- stack_spatial_design_matrices(prepared_list)
+
+# Fit the model
+fit <- fit_stacked_spatial_field(
+  stacked, orthogonal = TRUE
+)
+
+# Step 3: Visualize Fitted Values
+
+soundings$fitted_SIF <- fit$fitted
+
+plot(soundings["SIF_757nm"], main = "Observed SIF")
+plot(soundings["fitted_SIF"], main = "Fitted SIF (Posterior Mean)")
+
+# Step 4: Predict on Grid
+
+# Get coordinates from the target grid
+grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
+
+# Predict from fitted model
+target_grid$predicted_SIF <- predict(fit, newdata = grid_coords)
+
+# Visualize predictions
+plot(target_grid["predicted_SIF"], main = "Predicted SIF on Grid")
+
+```
+
+
+```{r}
+# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
+# Load packages
+library(sf)
+library(Matrix)
+library(downscaling)  # replace with your actual package name
+
+# Step 1: Construct Basis and Priors
+
+# -- Response field: SAR prior on a geometry basis (from soundings)
+basis_resp <- make_geometry_basis(target_grid)
+prior_resp <- make_sar_prior(basis_resp, tau = 30)
+
+response_field <- make_spatial_field(
+  basis = basis_resp,
+  prior = prior_resp,
+  label = "SIF_757nm"
+)
+
+# -- Covariate field: piecewise constant on the grid (mean_value)
+basis_cov <- make_piecewise_constant_basis(target_grid, values = target_grid$mean_value)
+prior_cov <- make_ridge_prior(basis_cov, tau = 1)  # treated as fixed effect
+
+covariate_field <- make_spatial_field(
+  basis = basis_cov,
+  prior = prior_cov,
+  label = "mean_value"
+)
+
+# Step 2: Prepare and Fit the Model
+
+# Combine both fields into a list
+field_list <- list(response_field)
+
+# Prepare integrated design matrices
+prepared_list <- prepare_spatial_field_list(
+  field_list,
+  observation_data = soundings,
+  response = "SIF_757nm",
+  parallel = TRUE,
+  n_workers = future::availableCores()
+)
+
+# Stack matrices and priors
+stacked <- stack_spatial_design_matrices(prepared_list)
+
+# Fit the model
+fit2 <- fit_stacked_spatial_field(
+  stacked
+)
+
+# Step 3: Visualize Fitted Values
+
+soundings$fitted_SIF <- fit2$fitted
+
+plot(soundings["SIF_757nm"], main = "Observed SIF")
+plot(soundings["fitted_SIF"], main = "Fitted SIF (Posterior Mean)")
+
+# Step 4: Predict on Grid
+
+# Get coordinates from the target grid
+grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
+
+# Predict from fitted model
+target_grid$predicted_SIF <- predict(fit2, newdata = grid_coords)
+
+# Visualize predictions
+plot(target_grid["predicted_SIF"], main = "Predicted SIF on Grid")
+
+```
+
+```{r}
+# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
+# Load packages
+library(sf)
+library(Matrix)
+library(downscaling)  # replace with your actual package name
+
+# Step 1: Construct Basis and Priors
+
+# -- Response field: SAR prior on a geometry basis (from soundings)
+basis_resp <- make_geometry_basis(target_grid)
+prior_resp <- make_sar_prior(basis_resp, tau = 30)
+
+response_field <- make_spatial_field(
+  basis = basis_resp,
+  prior = prior_resp,
+  label = "SIF_757nm"
+)
+
+# -- Covariate field: piecewise constant on the grid (mean_value)
+basis_cov <- make_geometry_basis(boston_watercover)
+prior_cov <- make_flat_prior(basis_cov)  # treated as fixed effect
+
+covariate_field <- make_spatial_field(
+  basis = basis_cov,
+  prior = prior_cov,
+  label = "water"
+)
+
+# Step 2: Prepare and Fit the Model
+
+# Combine both fields into a list
+field_list <- list(response_field,covariate_field)
+
+# Prepare integrated design matrices
+prepared_list <- prepare_spatial_field_list(
+  field_list,
+  observation_data = DownscalingPaper::soundings_paper,
+  response = "SIF_757nm",
+  parallel = TRUE,
+  n_workers = future::availableCores()
+)
+
+# Stack matrices and priors
+stacked <- stack_spatial_design_matrices(prepared_list)
+
+# Fit the model
+fit3 <- fit_stacked_spatial_field(
+  stacked, orthogonalize = TRUE
+)
+
+# Step 3: Visualize Fitted Values
+
+soundings$fitted_SIF <- fit3$fitted
+
+plot(soundings["SIF_757nm"], main = "Observed SIF")
+plot(soundings["fitted_SIF"], main = "Fitted SIF (Posterior Mean)")
+
+# Step 4: Predict on Grid
+
+# Get coordinates from the target grid
+grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
+
+# Predict from fitted model
+target_grid$predicted_SIF <- predict(fit3, newdata = grid_coords)
+
+# Visualize predictions
+plot(target_grid["predicted_SIF"], main = "Predicted SIF on Grid")
+
+```
+```{r}
+# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
+# Load packages
+library(sf)
+library(Matrix)
+library(downscaling)  # replace with your actual package name
+
+# Step 1: Construct Basis and Priors
+
+# -- Response field: SAR prior on a geometry basis (from soundings)
+basis_resp <- make_geometry_basis(target_grid)
+prior_resp <- make_sar_prior(basis_resp, tau = 8)
+
+response_field <- make_spatial_field(
+  basis = basis_resp,
+  prior = prior_resp,
+  label = "synthetic_albedo"
+)
+
+# -- Covariate field: piecewise constant on the grid (mean_value)
+basis_cov <- make_geometry_basis(boston_watercover)
+prior_cov <- make_flat_prior(basis_cov) # treated as fixed effect
+
+covariate_field <- make_spatial_field(
+  basis = basis_cov,
+  prior = prior_cov,
+  label = "water"
+)
+
+# Step 2: Prepare and Fit the Model
+
+# Combine both fields into a list
+field_list <- list(response_field,covariate_field)
+
+# Prepare integrated design matrices
+prepared_list <- prepare_spatial_field_list(
+  field_list,
+  observation_data = DownscalingPaper::soundings_paper,
+  response = "synthetic_albedo",
+  parallel = TRUE,
+  n_workers = future::availableCores()
+)
+
+# Stack matrices and priors
+stacked <- stack_spatial_design_matrices(prepared_list)
+
+# Fit the model
+fit4 <- fit_stacked_spatial_field(
+  stacked,orthogonal = TRUE
+)
+
+# Step 3: Visualize Fitted Values
+
+soundings$fitted_synthetic_albedo <- fit4$fitted
+
+plot(DownscalingPaper::soundings_paper["synthetic_albedo"], main = "Observed synthetic_albedo")
+plot(soundings["fitted_synthetic_albedo"], main = "Fitted synthetic_albedo (Posterior Mean)")
+
+# Step 4: Predict on Grid
+
+# Get coordinates from the target grid
+grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
+
+# Predict from fitted model
+target_grid$predicted_synthetic_albedo <- predict(fit4, newdata = grid_coords)
+
+# Visualize predictions
+plot(target_grid["predicted_synthetic_albedo"], main = "Predicted synthetic_albedo on Grid")
+
+ggplot()+geom_point(data = target_grid,aes(x = predicted_synthetic_albedo, y = mean_value, color = proportion_6))
+
+```
+
+
+## JUST WATER?
+
+```{r}
+# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
+# Load packages
+library(sf)
+library(Matrix)
+library(downscaling)  # replace with your actual package name
+
+# Step 1: Construct Basis and Priors
+
+# -- Response field: SAR prior on a geometry basis (from soundings)
+basis_resp <- make_geometry_basis(boston_watercover)
+prior_resp <- make_flat_prior(basis_resp)
+
+response_field <- make_spatial_field(
+  basis = basis_resp,
+  prior = prior_resp,
+  label = "SIF_757nm"
+)
+
+
+# Step 2: Prepare and Fit the Model
+
+# Combine both fields into a list
+field_list <- list(response_field)
+
+# Prepare integrated design matrices
+prepared_list <- prepare_spatial_field_list(
+  field_list,
+  observation_data = soundings,
+  response = "SIF_757nm",
+  parallel = TRUE,
+  n_workers = future::availableCores()
+)
+
+# Stack matrices and priors
+stacked <- stack_spatial_design_matrices(prepared_list)
+
+# Fit the model
+fit3 <- fit_stacked_spatial_field(
+  stacked
+)
+
+# Step 3: Visualize Fitted Values
+
+soundings$fitted_SIF <- fit3$fitted
+
+plot(soundings["SIF_757nm"], main = "Observed SIF")
+plot(soundings["fitted_SIF"], main = "Fitted SIF (Posterior Mean)")
+
+# Step 4: Predict on Grid
+
+# Get coordinates from the target grid
+grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
+
+# Predict from fitted model
+target_grid$predicted_SIF <- predict(fit3, newdata = grid_coords)
+
+# Visualize predictions
+plot(target_grid["predicted_SIF"], main = "Predicted SIF on Grid")
+```
+
+
+
+

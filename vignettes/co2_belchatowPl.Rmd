@@ -1,0 +1,35 @@
+---
+title: "co2_belchatowPl"
+output: pdf_document
+---
+
+```{r setup}
+library(downscaling)
+```
+
+
+```{r define_downscaled_datanames}
+save_dir <- normalizePath("../tmp/", winslash = '/', mustWork = T)
+
+tg_belchatowPl_xco2 <- downscaling::target_datanames(
+  product = "L2StdTG",
+  targetname = "belchatowPl",
+  column = "XCO2_ppm",
+  targetdate = c("220313", "220324", "220721"),
+  resolution_m = c(250, 500),
+  lambda = c(1, 5, 10, 15, 50)
+)
+```
+
+```{r clean_downscaled}
+downscaling::cleaner(tg_belchatowPl_xco2, save_dir = save_dir, 
+                     delN = T, delG = T, 
+                     delPG = F, del2D = F, 
+                     dryrun = T)
+```
+
+```{r generate_downscaled, warning=TRUE, include=FALSE}
+for (idx in 1:nrow(tg_belchatowPl_xco2) ) {
+  downscaling::generator(tg_belchatowPl_xco2[idx, ], save_dir = save_dir)
+}
+```

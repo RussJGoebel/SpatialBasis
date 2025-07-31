@@ -322,10 +322,13 @@ stack_spatial_design_matrices <- function(spatial_data_list) {
   )
 }
 
-#' Orthogonalize a design block against others
+#' Orthogonalize a design block against others (base R version)
 #'
 #' Given a stacked spatial design object, modifies the design matrix so that
 #' the block corresponding to `target_label` is orthogonal to all others.
+#'
+#' This uses base R's dense QR decomposition to project the target block onto the
+#' orthogonal complement of the space spanned by all other fields in the design matrix.
 #'
 #' @param stacked A list returned by `stack_spatial_design_matrices()`.
 #' @param target_label A string indicating which field to orthogonalize (e.g., "Random effect").
@@ -333,7 +336,7 @@ stack_spatial_design_matrices <- function(spatial_data_list) {
 #' @return A modified version of `stacked`, with the target block replaced by an orthogonalized version.
 #' @export
 orthogonalize_design_block <- function(stacked, target_label) {
-  message("Orthogonalizing deisgn block against ", target_label, " basis...")
+  message("Orthogonalizing design block against all others: ", target_label)
   stopifnot("X" %in% names(stacked), "column_map" %in% names(stacked))
   X <- stacked$X
   column_map <- stacked$column_map
@@ -343,7 +346,7 @@ orthogonalize_design_block <- function(stacked, target_label) {
   target_cols <- column_map[[target_label]]
   other_cols <- unlist(column_map[names(column_map) != target_label])
 
-  # Get submatrices
+  # Extract blocks
   X_target <- X[, target_cols, drop = FALSE]
   X_other <- X[, other_cols, drop = FALSE]
 
@@ -352,20 +355,18 @@ orthogonalize_design_block <- function(stacked, target_label) {
     return(stacked)
   }
 
+  # Dense QR decomposition from base R
+  qr_decomp <- qr(X_other)
+  Q <- qr.Q(qr_decomp)  # Orthonormal basis for colspace(X_other)
 
-  # Solve (X_other^T X_other) β = X_other^T X_target
-  XtX <- Matrix::crossprod(X_other)               # k x k
-  Xty <- Matrix::crossprod(X_other, X_target)     # k x m
-  beta_hat <- Matrix::solve(XtX, Xty)             # k x m
-  X_target_proj <- X_target - X_other %*% beta_hat
+  # Project X_target onto orthogonal complement of colspace(X_other)
+  X_target_proj <- X_target - Q %*% (t(Q) %*% X_target)
 
   # Replace target block
   X_new <- X
-  X_new <- as.matrix(X_new)
+  X_new[, target_cols] <- X_target_proj
 
-  X_new[, target_cols] <- as.matrix(X_target_proj)
-
-  stacked$X <- Matrix::Matrix(X_new)
+  stacked$X <- X_new
   stacked
 }
 
@@ -383,13 +384,16 @@ orthogonalize_design_block <- function(stacked, target_label) {
 #' @param region_list Optional: passed to `prepare_spatial_data()`.
 #' @param integration_rule Optional: override the integration rule.
 #' @param parallel Logical or integer: whether/how to parallelize integration.
+#' @param return_cholesky Logical: if TRUE, also return Cholesky factor of posterior precision matrix.
 #' @param ... Additional arguments passed to `prepare_spatial_data()` if needed.
 #'
 #' @return A list containing:
 #'   - posterior_mean: vector of estimated coefficients
 #'   - fitted: vector of fitted values
 #'   - residuals: vector of residuals
-#'   - design: the `spatial_data` used
+#'   - X: the design matrix
+#'   - spatial_data: the `spatial_data` object used
+#'   - posterior_cholesky: (optional) Cholesky factor of posterior precision matrix
 #'
 #' @export
 fit_spatial_field <- function(
@@ -399,13 +403,13 @@ fit_spatial_field <- function(
     region_list = NULL,
     integration_rule = NULL,
     parallel = FALSE,
+    return_cholesky = FALSE,
     ...
 ) {
   # If already prepared, use as-is
   if (inherits(spatial_data, "prepared_spatial_data")) {
     design <- spatial_data
   } else if (inherits(spatial_data, "spatial_field")) {
-    # Otherwise, prepare dynamically
     message("Preparing spatial design (via integration or areas of intersections)...")
     design <- prepare_spatial_data(
       spatial_field = spatial_data,
@@ -423,25 +427,24 @@ fit_spatial_field <- function(
   y <- design$y
   X <- design$X_spatial
   Lambda <- compute_precision(design$prior)
+  if (is.null(Lambda)) stop("The spatial_field does not have a prior specified.")
 
-
-
-  if (is.null(Lambda)) {
-    stop("The spatial_field does not have a prior specified.")
-  }
   message("Computing posterior precision...")
-
-  # Compute the posterior precision
   XtX <- Matrix::crossprod(Matrix::Matrix(X))
   posterior_precision <- XtX + Lambda
 
-  # Compute posterior mean
+  # Optionally compute Cholesky
+  posterior_cholesky <- NULL
+  if (return_cholesky) {
+    message("Computing Cholesky factor of posterior precision...")
+    posterior_cholesky <- Matrix::chol(posterior_precision)
+  }
+
   message("Computing posterior mean...")
   rhs <- Matrix::crossprod(X, y)
   beta_hat <- as.numeric(solve_system(posterior_precision, rhs))
 
   message("Computing fitted values...")
-  # Compute fitted values
   fitted <- as.numeric(X %*% beta_hat)
   residuals <- y - fitted
 
@@ -449,12 +452,18 @@ fit_spatial_field <- function(
     posterior_mean = beta_hat,
     fitted = fitted,
     residuals = residuals,
-    X <- X,
+    X = X,
     spatial_data = spatial_data
   )
+
+  if (return_cholesky) {
+    out$posterior_cholesky <- posterior_cholesky
+  }
+
   class(out) <- "fitted_spatial_field"
   return(out)
 }
+
 
 #' Fit a Stacked Spatial Model
 #'
@@ -482,9 +491,14 @@ fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL) {
 
   if (!is.null(orthogonalize)) {
     if(is.character(orthogonalize)){stacked <- orthogonalize_design_block(stacked, target_label = orthogonalize)}
-    if(orthogonalize == TRUE){stacked <- orthogonalize_design_block(stacked, target_label = stacked$fields[[1]]$response)}
+    if(orthogonalize == TRUE){
 
-    if(!is.null(orthogonalize) & !is.logical(orthogonalize)){stop("'orthogonalize' must be either a logical (TRUE/FALSE) or character string.")}
+      message("Orthogonalizing against first spatial field in list...")
+      stacked <- orthogonalize_design_block(stacked, target_label = names(stacked$column_map)[1])
+
+    }
+
+
 
   }
 

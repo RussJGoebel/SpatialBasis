@@ -1,0 +1,38 @@
+---
+title: "generate_bostonMA"
+output: pdf_document
+---
+
+```{r setup}
+library(devtools)
+library(downscaling)
+```
+
+
+```{r}
+save_dir <- normalizePath("../tmp/", winslash = '/', mustWork = T)
+
+tg_datanames <- downscaling::target_datanames(
+  product = "LtSIF",
+  targetname = "bostonMA",
+  column <- "SIF_757nm",
+  targetdate = c("220614"),
+  resolution_m = c(330, 500),
+  lambda = c(1, 5, 10, 15)
+)
+```
+
+```{r clean_downscaled_files}
+downscaling::cleaner(tg_datanames, save_dir = save_dir, 
+                     delN = T, delG = T, 
+                     delPG = F, del2D = F, 
+                     dryrun = T)
+
+```
+
+
+```{r generate_downscaled_files}
+for (idx in 1:nrow(tg_datanames) ) {
+  downscaling::generator(tg_datanames[idx, ], save_dir = save_dir)
+}
+```

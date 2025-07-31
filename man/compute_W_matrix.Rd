@@ -2,13 +2,24 @@
 % Please edit documentation in R/matrix_W.R
 \name{compute_W_matrix}
 \alias{compute_W_matrix}
-\title{Title}
+\title{Compute Neighborhood (W) Matrix for Spatial Grid}
 \usage{
-compute_W_matrix(target_grid, grid_shape = c("rectangle", "other"))
+compute_W_matrix(
+  target_grid,
+  grid_shape = c("rectangle", "other"),
+  adjacency = c("queen", "rook")
+)
 }
 \arguments{
-\item{grid_shape}{}
+\item{target_grid}{An \code{sf} object representing the spatial grid.}
+
+\item{grid_shape}{Either \code{"rectangle"} or \code{"other"}. Determines method of neighbor calculation.}
+
+\item{adjacency}{\code{"queen"} (default) or \code{"rook"}; only relevant if \code{grid_shape = "other"}.}
+}
+\value{
+A sparse row-normalized neighbor matrix \code{W}.
 }
 \description{
-Title
+Compute Neighborhood (W) Matrix for Spatial Grid
 }

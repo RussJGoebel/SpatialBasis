@@ -54,7 +54,7 @@ make_ridge_prior <- function(basis, tau = 1) {
 
 #' @export
 compute_precision.ridge <- function(prior) {
-  Matrix::Diagonal(prior$k, prior$lambda)
+  Matrix::Diagonal(prior$k, prior$tau)
 }
 
 #' @export
@@ -81,7 +81,8 @@ make_sar_prior <- function(
     rho = 0.99,
     tau = 1,
     W = NULL,
-    scaling_weights = NULL
+    scaling_weights = NULL,
+    adjacency = "queen"
 ) {
   if (!inherits(basis, "geometry_basis")) {
     stop("make_sar_prior() requires a geometry_basis object.")
@@ -100,7 +101,7 @@ make_sar_prior <- function(
   n <- basis$k
 
   if (is.null(W)) {
-    W <- compute_W_matrix(sf::st_as_sf(basis$geometry), grid_shape = "other")
+    W <- SpatialBasis::compute_W_matrix(sf::st_as_sf(basis$geometry), grid_shape = "other", adjacency = adjacency)
   }
 
   # Always convert W to sparse Matrix
@@ -244,70 +245,61 @@ compute_gradient.sar <- function(prior) {
 #' Make a Matérn-Fourier Prior
 #'
 #' Constructs a prior over a Matérn-Fourier basis, parameterized by:
-#' \itemize{
-#'   \item \code{tau}: Precision scaling parameter (>0).
-#'   \item \code{kappa}: Range parameter (>0), controls the decay of correlation.
-#'   \item \code{alpha}: Smoothness parameter (>0).
-#' }
-#' Unlike simpler versions, this function does **not** precompute eigenvalues.
-#' Instead, it stores the fixed Laplacian eigenvalues from the basis and computes
-#' the eigenvalues dynamically during precision and gradient evaluation.
+#'   tau: Precision scaling parameter (>0)
+#'   kappa: Range parameter (>0)
+#'   alpha: Smoothness parameter (>0)
 #'
-#' @param basis A \code{function_basis} object created by \code{make_matern_fourier_basis()}.
-#' @param tau Positive numeric, precision scaling parameter.
-#' @param kappa Positive numeric, range parameter.
-#' @param alpha Positive numeric, smoothness parameter.
+#' The constant mode precision (first entry) is recomputed as (kappa^2)^alpha if included.
 #'
-#' @return An object of class \code{c("matern_fourier", "prior")}.
+#' @param basis A function_basis created by make_matern_fourier_basis()
+#' @param tau Positive numeric, precision scaling parameter
+#' @param kappa2 Positive numeric, range parameter
+#' @param alpha Positive numeric, smoothness parameter
+#' @return An object of class c("matern_fourier", "prior")
 #' @export
 make_matern_fourier_prior <- function(
     basis,
     tau = 1,
-    kappa = 1,
+    kappa2 = 1,
     alpha = 1
 ) {
   if (!inherits(basis, "function_basis") || basis$type != "matern_fourier") {
     stop("make_matern_fourier_prior() requires a basis of type 'matern_fourier'.")
   }
   if (tau <= 0) stop("tau must be positive.")
-  if (kappa <= 0) stop("kappa must be positive.")
+  if (kappa2 <= 0) stop("kappa2 must be positive.")
   if (alpha <= 0) stop("alpha must be positive.")
+
+  constant_mode_included <- basis$metadata$constant_mode_included %||% FALSE
+  constant_mode_precision <- if (constant_mode_included) tau*(kappa2)^alpha else NA_real_
 
   structure(
     list(
       type = "matern_fourier",
       structure = list(
         laplacian_lambda = basis$metadata$laplacian_lambda,
-        n = basis$k
+        n = basis$k,
+        constant_mode_included = constant_mode_included
       ),
       hyperparameters = list(
         tau = tau,
-        kappa = kappa,
-        alpha = alpha
+        kappa2 = kappa2,
+        alpha = alpha,
+        constant_mode_precision = constant_mode_precision
       ),
-      precomputed = list()  # Reserved for any future caching
+      precomputed = list()
     ),
     class = c("matern_fourier", "prior")
   )
 }
 
 
-#' Compute Precision Matrix for Matérn-Fourier Prior
-#'
-#' Given a Matérn-Fourier prior object, computes the precision matrix:
-#' \deqn{
-#'   Q = \tau \, \mathrm{diag}\Bigl[\bigl(\kappa^2 + \lambda_j^{Laplacian}\bigr)^{\alpha}\Bigr]
-#' }
-#' where \eqn{\lambda_j^{Laplacian}} are the stored Laplacian eigenvalues of the basis.
-#'
-#' @param prior An object of class "matern_fourier".
-#'
-#' @return A sparse diagonal precision matrix (class "Diagonal").
-#' @export
+
 #' Compute Precision Matrix for Matérn-Fourier Prior
 #'
 #' Computes the diagonal precision matrix:
 #'   Q_j = tau * (kappa^2 + Laplacian_lambda_j)^alpha
+#'   The first entry (if constant_mode_included) may be overridden
 #'
 #' @param prior An object of class "matern_fourier".
 #' @return A sparse diagonal precision matrix.
@@ -318,23 +310,30 @@ compute_precision.matern_fourier <- function(prior) {
   }
 
   tau <- prior$hyperparameters$tau
-  kappa <- prior$hyperparameters$kappa
+  kappa2 <- prior$hyperparameters$kappa2
   alpha <- prior$hyperparameters$alpha
   lambda_lap <- prior$structure$laplacian_lambda
   n <- prior$structure$n
 
-  # Compute diagonal entries: Q_j = tau * (kappa^2 + lambda_j)^alpha
-  q_diag <- tau * (kappa^2 + lambda_lap)^alpha
+  constant_mode_included <- prior$structure$constant_mode_included %||% FALSE
+  constant_mode_precision <- prior$hyperparameters$constant_mode_precision %||% NA_real_
+
+  q_diag <- tau * (kappa2 + lambda_lap)^alpha
+
+  if (constant_mode_included && !is.na(constant_mode_precision)) {
+    q_diag[1] <- constant_mode_precision
+  }
 
   Matrix::Diagonal(n, x = q_diag)
 }
+
 
 #' Compute Gradient of Matérn-Fourier Prior Precision Matrix
 #'
 #' Computes the derivative of the precision matrix with respect to each hyperparameter:
 #' \itemize{
 #'   \item \code{tau}: scaling precision.
-#'   \item \code{kappa}: range parameter.
+#'   \item \code{kappa2}: range parameter.
 #'   \item \code{alpha}: smoothness parameter.
 #' }
 #' All derivatives are returned as sparse diagonal matrices.
@@ -355,7 +354,7 @@ compute_precision.matern_fourier <- function(prior) {
 #' @return A named list with components:
 #' \describe{
 #'   \item{tau}{Derivative w.r.t. \code{tau}.}
-#'   \item{kappa}{Derivative w.r.t. \code{kappa}.}
+#'   \item{kappa2}{Derivative w.r.t. \code{kappa2}.}
 #'   \item{alpha}{Derivative w.r.t. \code{alpha}.}
 #' }
 #' @export
@@ -365,20 +364,20 @@ compute_gradient.matern_fourier <- function(prior) {
   }
 
   tau <- prior$hyperparameters$tau
-  kappa <- prior$hyperparameters$kappa
+  kappa2 <- prior$hyperparameters$kappa2
   alpha <- prior$hyperparameters$alpha
   lambda_lap <- prior$structure$laplacian_lambda
   n <- prior$structure$n
 
-  kappa_sq_plus_lap <- kappa^2 + lambda_lap
+  kappa_sq_plus_lap <- kappa2 + lambda_lap
 
   # dQ/dtau
   dQ_dtau_diag <- kappa_sq_plus_lap^alpha
   dQ_dtau <- Matrix::Diagonal(n, x = dQ_dtau_diag)
 
   # dQ/dkappa
-  dQ_dkappa_diag <- tau * alpha * 2 * kappa * kappa_sq_plus_lap^(alpha - 1)
-  dQ_dkappa <- Matrix::Diagonal(n, x = dQ_dkappa_diag)
+  dQ_dkappa2_diag <- tau * alpha * 2 * kappa2 * kappa_sq_plus_lap^(alpha - 1)
+  dQ_dkappa2 <- Matrix::Diagonal(n, x = dQ_dkappa2_diag)
 
   # dQ/dalpha
   dQ_dalpha_diag <- tau * kappa_sq_plus_lap^alpha * log(kappa_sq_plus_lap)
@@ -386,9 +385,47 @@ compute_gradient.matern_fourier <- function(prior) {
 
   list(
     tau = dQ_dtau,
-    kappa = dQ_dkappa,
+    kappa2 = dQ_dkappa2,
     alpha = dQ_dalpha
   )
+}
+
+### NYSTROM ====================================================================
+
+#' Make a Nyström Prior
+#'
+#' Uses eigenvalues from the Nyström basis as diagonal precisions
+#'
+#' @param basis A basis object created by `make_nystrom_basis()`
+#' @param tau A global precision multiplier (default = 1)
+#' @export
+make_nystrom_prior <- function(basis, tau = 1) {
+  stopifnot(inherits(basis, "function_basis"))
+  stopifnot("nystrom" %in% basis$type)
+  if (tau <= 0) stop("tau must be positive.")
+
+  lambda <- basis$metadata$eigenvalues
+  if (is.null(lambda)) stop("No eigenvalues found in basis metadata.")
+
+  structure(
+    list(
+      type = "nystrom",
+      k = length(lambda),
+      tau = tau,
+      eigenvalues = lambda
+    ),
+    class = c("nystrom", "prior")
+  )
+}
+
+#' @export
+compute_precision.nystrom <- function(prior) {
+  Matrix::Diagonal(prior$k, x = prior$tau * prior$eigenvalues)
+}
+
+#' @export
+compute_gradient.nystrom <- function(prior) {
+  list(tau = Matrix::Diagonal(prior$k, x = prior$eigenvalues))
 }
 
 

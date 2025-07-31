@@ -4,28 +4,26 @@
 \alias{make_matern_fourier_prior}
 \title{Make a Matérn-Fourier Prior}
 \usage{
-make_matern_fourier_prior(basis, tau = 1, kappa = 1, alpha = 1)
+make_matern_fourier_prior(basis, tau = 1, kappa2 = 1, alpha = 1)
 }
 \arguments{
-\item{basis}{A \code{function_basis} object created by \code{make_matern_fourier_basis()}.}
+\item{basis}{A function_basis created by make_matern_fourier_basis()}
 
-\item{tau}{Positive numeric, precision scaling parameter.}
+\item{tau}{Positive numeric, precision scaling parameter}
 
-\item{kappa}{Positive numeric, range parameter.}
+\item{kappa2}{Positive numeric, range parameter}
 
-\item{alpha}{Positive numeric, smoothness parameter.}
+\item{alpha}{Positive numeric, smoothness parameter}
 }
 \value{
-An object of class \code{c("matern_fourier", "prior")}.
+An object of class c("matern_fourier", "prior")
 }
 \description{
 Constructs a prior over a Matérn-Fourier basis, parameterized by:
-\itemize{
-\item \code{tau}: Precision scaling parameter (>0).
-\item \code{kappa}: Range parameter (>0), controls the decay of correlation.
-\item \code{alpha}: Smoothness parameter (>0).
+tau: Precision scaling parameter (>0)
+kappa: Range parameter (>0)
+alpha: Smoothness parameter (>0)
 }
-Unlike simpler versions, this function does \strong{not} precompute eigenvalues.
-Instead, it stores the fixed Laplacian eigenvalues from the basis and computes
-the eigenvalues dynamically during precision and gradient evaluation.
+\details{
+The constant mode precision (first entry) is recomputed as (kappa^2)^alpha if included.
 }
