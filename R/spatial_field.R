@@ -74,16 +74,17 @@ make_spatial_field <- function(basis = NULL,
 #' @param region_list Optional: precomputed list of regions (overrides auto-building).
 #' @param integration_rule Optional: override the integration rule in the spatial_field.
 #' @param parallel Logical or integer: whether/how to parallelize integration.
+#' @param compute_cholesky Logical: whether to compute and return the Cholesky of XtX + Lambda.
 #' @param ... Additional arguments passed to integration functions.
 #'
 #' @return A list with:
 #'   - y: the response vector.
 #'   - X_spatial: the integrated design matrix.
-#'   - basis: the basis object.
-#'   - prior: the precision matrix.
-#'   - integration_rule: the integration rule used.
-#'   - region_list: the regions.
-#'   - observation_data: (optional) reference to input data.
+#'   - XtX: XᵗX matrix
+#'   - Lambda: prior precision matrix
+#'   - posterior_precision: XtX + Lambda
+#'   - cholesky_factor: Cholesky of XtX + Lambda (if requested)
+#'   - basis, prior, integration_rule, region_list, etc.
 #'
 #' @export
 prepare_spatial_data <- function(
@@ -93,6 +94,7 @@ prepare_spatial_data <- function(
     region_list = NULL,
     integration_rule = NULL,
     parallel = FALSE,
+    compute_cholesky = FALSE,
     ...
 ) {
   stopifnot(inherits(spatial_field, "spatial_field"))
@@ -106,36 +108,47 @@ prepare_spatial_data <- function(
   }
 
   # Decide integration rule
-  rule <- if (!is.null(integration_rule)) {
-    integration_rule
-  } else {
-    spatial_field$integration_rule
-  }
-
+  rule <- if (!is.null(integration_rule)) integration_rule else spatial_field$integration_rule
   stopifnot(inherits(rule, "integration_rule"))
+
   message("Integrating basis functions over region...")
-  # Integration
-  if (parallel) {
-    X_spatial <- integrate_region_list_parallel(
-      region_list,
-      rule,
-      spatial_field$basis,
-      ...
-    )
+  X_spatial <- if (parallel) {
+    integrate_region_list_parallel(region_list, rule, spatial_field$basis, ...)
   } else {
-    X_spatial <- integrate_region_list(
-      region_list,
-      rule,
-      spatial_field$basis
-    )
+    integrate_region_list(region_list, rule, spatial_field$basis)
   }
 
   y <- observation_data[[response]]
+  X <- Matrix::Matrix(X_spatial)
 
-  # Return everything
+  message("Computing X'X...")
+  XtX <- Matrix::crossprod(X)
+  Lambda <- compute_precision(spatial_field$prior)
+
+  if (is.null(Lambda)) {
+    stop("Spatial field must have a prior to compute posterior precision.")
+  }
+
+  posterior_precision <- XtX + Lambda
+
+  # Optional Cholesky computation
+  cholesky_factor <- NULL
+  if (compute_cholesky) {
+    message("Computing Cholesky of posterior precision...")
+    cholesky_factor <- try(Matrix::chol(posterior_precision), silent = TRUE)
+    if (inherits(cholesky_factor, "try-error")) {
+      warning("Cholesky failed: posterior precision is not positive definite.")
+      cholesky_factor <- NULL
+    }
+  }
+
   out <- list(
     y = y,
-    X_spatial = Matrix::Matrix(X_spatial),
+    X_spatial = X,
+    XtX = XtX,
+    Lambda = Lambda,
+    posterior_precision = posterior_precision,
+    cholesky_factor = cholesky_factor,
     basis = spatial_field$basis,
     prior = spatial_field$prior,
     integration_rule = rule,
@@ -147,6 +160,9 @@ prepare_spatial_data <- function(
   class(out) <- "prepared_spatial_data"
   return(out)
 }
+
+
+
 
 #' Convert a mixture of sf objects and spatial_fields into a unified list of spatial_field objects
 #'
@@ -269,6 +285,7 @@ prepare_spatial_field_list <- function(
 #' and stacks their design matrices and precision priors into a joint model matrix and block diagonal prior.
 #'
 #' @param spatial_data_list A list of `prepared_spatial_data` objects (one per covariate).
+#' @param compute_cholesky A boolean; if TRUE, the cholesky factor of the precision is saved using Matrix::chol
 #'
 #' @return A list with components:
 #'   - `y`: the shared response vector
@@ -278,7 +295,7 @@ prepare_spatial_field_list <- function(
 #'   - `column_map`: a named list mapping covariate labels to column indices in `X`
 #'
 #' @export
-stack_spatial_design_matrices <- function(spatial_data_list) {
+stack_spatial_design_matrices <- function(spatial_data_list, compute_cholesky = FALSE) {
   stopifnot(is.list(spatial_data_list))
   if (length(spatial_data_list) == 0) stop("spatial_data_list must not be empty.")
 
@@ -311,89 +328,90 @@ stack_spatial_design_matrices <- function(spatial_data_list) {
 
   # Stack columns and construct block diagonal precision
   X_stacked <- do.call(cbind, X_blocks)
+  XtX <- Matrix::crossprod(X_stacked)
   Lambda_block_diag <- Matrix::bdiag(Lambda_blocks)
 
-  list(
+  posterior_precision <- XtX+Lambda_block_diag
+
+  cholesky_factor <- NULL
+  if (compute_cholesky) {
+    message("Computing Cholesky of posterior precision...")
+    cholesky_factor <- try(Matrix::chol(posterior_precision), silent = TRUE)
+    if (inherits(cholesky_factor, "try-error")) {
+      warning("Cholesky failed: posterior precision is not positive definite.")
+      cholesky_factor <- NULL
+    }
+  }
+
+  stacked = list(
     y = y,
     X = X_stacked,
+    XtX = XtX,
+    cholesky_factor = cholesky_factor,
+    posterior_precision = posterior_precision,
     Lambda = Lambda_block_diag,
     fields = spatial_data_list,
     column_map = column_map
   )
+
+  class(stacked) <- "stacked_spatial_data"
+
+  return(stacked)
 }
 
-#' Orthogonalize a design block against others (base R version)
+
+#' Orthogonalize a design block against others (sparse/scalable version)
 #'
-#' Given a stacked spatial design object, modifies the design matrix so that
-#' the block corresponding to `target_label` is orthogonal to all others.
+#' Projects the target block onto the orthogonal complement of the other blocks
+#' using Gram-matrix projection. Preserves sparsity and scales to large n.
 #'
-#' This uses base R's dense QR decomposition to project the target block onto the
-#' orthogonal complement of the space spanned by all other fields in the design matrix.
-#'
-#' @param stacked A list returned by `stack_spatial_design_matrices()`.
-#' @param target_label A string indicating which field to orthogonalize (e.g., "Random effect").
-#'
-#' @return A modified version of `stacked`, with the target block replaced by an orthogonalized version.
+#' @param stacked A list from `stack_spatial_design_matrices()`.
+#' @param target_label A string for the field to orthogonalize (e.g., "Spatial field").
+#' @return A modified `stacked` object with orthogonalized design block and adjusted prior.
 #' @export
 orthogonalize_design_block <- function(stacked, target_label) {
-  message("Orthogonalizing design block against all others: ", target_label)
+  message("Orthogonalizing design block against all others (sparse): ", target_label)
   stopifnot("X" %in% names(stacked), "column_map" %in% names(stacked))
-  X <- stacked$X
-  column_map <- stacked$column_map
-  stopifnot(target_label %in% names(column_map))
 
-  # Identify columns
-  target_cols <- column_map[[target_label]]
-  other_cols <- unlist(column_map[names(column_map) != target_label])
+  O <- orthogonalize_matrices(stacked$X,stacked$column_map,target_label)
 
-  # Extract blocks
-  X_target <- X[, target_cols, drop = FALSE]
-  X_other <- X[, other_cols, drop = FALSE]
-
-  if (ncol(X_other) == 0) {
-    message("No other fields to orthogonalize against. Returning original stacked object.")
-    return(stacked)
-  }
-
-  # Dense QR decomposition from base R
-  qr_decomp <- qr(X_other)
-  Q <- qr.Q(qr_decomp)  # Orthonormal basis for colspace(X_other)
-
-  # Project X_target onto orthogonal complement of colspace(X_other)
-  X_target_proj <- X_target - Q %*% (t(Q) %*% X_target)
-
-  # Replace target block
-  X_new <- X
-  X_new[, target_cols] <- X_target_proj
-
-  stacked$X <- X_new
-  stacked
+  stacked$X <- O$X_new
+  stacked$A <- O$A
+  message("Computing new XtX...")
+  stacked$XtX <- Matrix::crossprod(Matrix::Matrix(stacked$X))
+  #stacked$Lambda <- Lambda_new
+  return(stacked)
 }
-
-
 
 
 #' Fit a Spatial Field Model Without Covariates
 #'
-#' Estimates the posterior mean of the spatial random field.
+#' Estimates the posterior mean of the spatial random field coefficients, and optionally
+#' returns the Cholesky factor or full posterior variance matrix.
 #'
-#' @param spatial_data Either a `spatial_data` object (from `prepare_spatial_data()`)
+#' @param spatial_data Either a `prepared_spatial_data` object (from `prepare_spatial_data()`)
 #'   or a `spatial_field` object.
 #' @param observation_data If `spatial_data` is a `spatial_field`, the observation data (sf).
 #' @param response If `spatial_data` is a `spatial_field`, the name of the response variable.
 #' @param region_list Optional: passed to `prepare_spatial_data()`.
 #' @param integration_rule Optional: override the integration rule.
 #' @param parallel Logical or integer: whether/how to parallelize integration.
-#' @param return_cholesky Logical: if TRUE, also return Cholesky factor of posterior precision matrix.
+#' @param return_cholesky Logical: if `TRUE`, return the Cholesky factor of the posterior precision matrix.
+#'   If `spatial_data` already includes a `cholesky_factor` entry, it will be reused.
+#' @param return_variance Logical: if `TRUE`, return the full posterior variance matrix (inverse of posterior precision).
+#'   If `return_cholesky` is also `TRUE`, the Cholesky is used to compute the inverse efficiently.
 #' @param ... Additional arguments passed to `prepare_spatial_data()` if needed.
 #'
-#' @return A list containing:
-#'   - posterior_mean: vector of estimated coefficients
-#'   - fitted: vector of fitted values
-#'   - residuals: vector of residuals
-#'   - X: the design matrix
-#'   - spatial_data: the `spatial_data` object used
-#'   - posterior_cholesky: (optional) Cholesky factor of posterior precision matrix
+#' @return A list of class `"fitted_spatial_field"` containing:
+#' \describe{
+#'   \item{posterior_mean}{Estimated coefficients of the spatial field.}
+#'   \item{fitted}{Fitted values at observed locations.}
+#'   \item{residuals}{Observed minus fitted values.}
+#'   \item{X}{Design matrix used for estimation.}
+#'   \item{spatial_data}{Original input or prepared spatial data object.}
+#'   \item{cholesky_factor}{(Optional) Cholesky factor of the posterior precision matrix.}
+#'   \item{posterior_variance}{(Optional) Posterior variance matrix of the coefficients.}
+#' }
 #'
 #' @export
 fit_spatial_field <- function(
@@ -404,9 +422,10 @@ fit_spatial_field <- function(
     integration_rule = NULL,
     parallel = FALSE,
     return_cholesky = FALSE,
+    return_variance = FALSE,
+    diagonal_only = FALSE,
     ...
 ) {
-  # If already prepared, use as-is
   if (inherits(spatial_data, "prepared_spatial_data")) {
     design <- spatial_data
   } else if (inherits(spatial_data, "spatial_field")) {
@@ -421,7 +440,7 @@ fit_spatial_field <- function(
       ...
     )
   } else {
-    stop("`spatial_data` must be either a `spatial_data` or `spatial_field` object.")
+    stop("`spatial_data` must be either a `prepared_spatial_data` or `spatial_field` object.")
   }
 
   y <- design$y
@@ -433,11 +452,22 @@ fit_spatial_field <- function(
   XtX <- Matrix::crossprod(Matrix::Matrix(X))
   posterior_precision <- XtX + Lambda
 
-  # Optionally compute Cholesky
-  posterior_cholesky <- NULL
-  if (return_cholesky) {
+  # Initialize optional outputs
+  cholesky_factor <- NULL
+  posterior_variance <- NULL
+
+  # <<< UPDATED: Check for cached Cholesky in design object
+  if (!is.null(design$cholesky_factor)) {
+    message("Using cached Cholesky factor from design.")
+    cholesky_factor <- design$cholesky_factor
+  } else if (return_cholesky || return_variance) {
     message("Computing Cholesky factor of posterior precision...")
-    posterior_cholesky <- Matrix::chol(posterior_precision)
+    cholesky_factor <- try(Matrix::chol(posterior_precision), silent = TRUE)
+
+    if (inherits(cholesky_factor, "try-error")) {
+      warning("Cholesky failed: posterior precision not positive definite.")
+      cholesky_factor <- NULL
+    }
   }
 
   message("Computing posterior mean...")
@@ -453,16 +483,37 @@ fit_spatial_field <- function(
     fitted = fitted,
     residuals = residuals,
     X = X,
-    spatial_data = spatial_data
+    XtX = XtX,
+    Lambda = Lambda,
+    spatial_data = spatial_data,
+    cholesky_factor = cholesky_factor
   )
 
-  if (return_cholesky) {
-    out$posterior_cholesky <- posterior_cholesky
+  if (return_variance) {
+    out$posterior_variance <- compute_posterior_variance(
+      precision_matrix = posterior_precision,
+      cholesky_factor = cholesky_factor,
+      diagonal_only = diagonal_only
+    )
+
+  out$sigma2 <- compute_posterior_measurement_error(
+      posterior_mean = out$posterior_mean,
+      X = X,
+      Lambda = Lambda,
+      observations = y
+    )
+
+  out$posterior_variance <- out$sigma2$sigma2_mode * out$posterior_variance
+
   }
+
+
+
 
   class(out) <- "fitted_spatial_field"
   return(out)
 }
+
 
 
 #' Fit a Stacked Spatial Model
@@ -472,6 +523,8 @@ fit_spatial_field <- function(
 #'
 #' @param stacked A list returned by `stack_spatial_design_matrices()`.
 #' @param orthogonalize Optional. A string indicating which label (from `column_map`) to orthogonalize
+#' @param return_variance Optional. A boolean; if TRUE returns the entire posterior covariance, otherwise returns only the diagonal.
+#' @param diagonal_only Optional.
 #'   against all other fields. If NULL, no orthogonalization is done.
 #'
 #' @return An object of class `"fitted_spatial_field"` with components:
@@ -485,16 +538,19 @@ fit_spatial_field <- function(
 #'   - `fields`: original field metadata
 #'
 #' @export
-fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL) {
+fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL,return_variance = FALSE, diagonal_only = FALSE) {
   stopifnot(is.list(stacked))
   stopifnot(all(c("y", "X", "Lambda", "column_map", "fields") %in% names(stacked)))
 
   if (!is.null(orthogonalize)) {
-    if(is.character(orthogonalize)){stacked <- orthogonalize_design_block(stacked, target_label = orthogonalize)}
-    if(orthogonalize == TRUE){
 
+    if(is.character(orthogonalize)){
+      target_label = orthogonalize
+      stacked <- orthogonalize_design_block(stacked, target_label =target_label)}
+    if(orthogonalize == TRUE){
+      target_label <- names(stacked$column_map)[1]
       message("Orthogonalizing against first spatial field in list...")
-      stacked <- orthogonalize_design_block(stacked, target_label = names(stacked$column_map)[1])
+      stacked <- orthogonalize_design_block(stacked, target_label = target_label)
 
     }
 
@@ -507,8 +563,7 @@ fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL) {
   Lambda <- stacked$Lambda
 
   message("Computing posterior precision...")
-  XtX <- Matrix::crossprod(X)
-  posterior_precision <- XtX + Lambda
+  posterior_precision <- stacked$XtX + Lambda
 
   message("Solving for posterior mean...")
   rhs <- Matrix::crossprod(X, y)
@@ -523,108 +578,38 @@ fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL) {
     fitted = fitted,
     residuals = residuals,
     X = X,
+    XtX = stacked$XtX,
     Lambda = Lambda,
     y = y,
     column_map = stacked$column_map,
-    fields = stacked$fields
+    fields = stacked$fields,
+    spatial_data = stacked
   )
-  class(out) <- "fitted_spatial_field"
-  return(out)
-}
 
+  if (return_variance) {
+    out$posterior_variance <- compute_posterior_variance(
+      precision_matrix = posterior_precision,
+      cholesky_factor = stacked$cholesky_factor,
+      diagonal_only = diagonal_only)
+     measurement_error <- compute_posterior_measurement_error(out$posterior_mean,out$X,out$Lambda,out$y)
+     out$posterior_variance <- out$posterior_variance*measurement_error$sigma2_mode
+     out$sigma2_a_n <- measurement_error$a_n
+     out$sigma2_b_n <- measurement_error$b_n
 
-#' Fit a Spatial Model with One or More Covariates
-#'
-#' Supports a single spatial field, or multiple covariates extracted from an `sf` object.
-#'
-#' @param model Either a `spatial_field`, `prepared_spatial_data`, or list of covariate names (character vector).
-#' @param observation_data An `sf` object with geometry and data columns.
-#' @param response The name of the response variable (character).
-#' @param region_list Optional precomputed region list.
-#' @param integration_rule Optional override of the integration rule.
-#' @param parallel Logical or integer: whether/how to parallelize integration.
-#' @param default_prior Function returning a prior object given a basis (only used if model is covariate names).
-#' @param ... Passed to integration routines.
-#'
-#' @return A list with:
-#'   - posterior_mean: estimated coefficients
-#'   - fitted: fitted values
-#'   - residuals: residual vector
-#'   - X: design matrix
-#'   - Lambda: prior precision
-#'   - y: response vector
-#'   - column_map: label -> column index mapping
-#'
-#' @export
-fit_spatial_model <- function(
-    model,
-    observation_data,
-    response,
-    region_list = NULL,
-    integration_rule = NULL,
-    parallel = FALSE,
-    default_prior = function(basis) make_ridge_prior(basis, tau = 1e-4),
-    ...
-) {
-  # Handle different model types
-  if (inherits(model, "prepared_spatial_data")) {
-    spatial_data_list <- list(model)
-  } else if (inherits(model, "spatial_field")) {
-    spatial_data_list <- list(prepare_spatial_data(
-      spatial_field = model,
-      observation_data = observation_data,
-      response = response,
-      region_list = region_list,
-      integration_rule = integration_rule,
-      parallel = parallel,
-      ...
-    ))
-  } else if (is.character(model)) {
-    # Assume this is a list of covariate names
-    field_list <- as_spatial_field_list(
-      data_list = list(observation_data),
-      covariate_names = model,
-      default_prior = default_prior
-    )
-    spatial_data_list <- prepare_spatial_field_list(
-      field_list = field_list,
-      observation_data = observation_data,
-      response = response,
-      region_list = region_list,
-      integration_rule = integration_rule,
-      parallel = parallel,
-      ...
-    )
-  } else {
-    stop("`model` must be a spatial_field, prepared_spatial_data, or character vector of covariate names.")
   }
 
-  # Stack matrices and compute posterior mean
-  stacked <- stack_spatial_design_matrices(spatial_data_list)
-  y <- stacked$y
-  X <- stacked$X
-  Lambda <- stacked$Lambda
+  if (!is.null(orthogonalize)) {
+    out$orthogonalize <- orthogonalize
+    if(!identical(orthogonalize, FALSE)){
+      out$target_label <- target_label
+    }
+  }
 
-  message("Computing posterior precision...")
-  XtX <- Matrix::crossprod(X)
-  posterior_precision <- XtX + Lambda
 
-  message("Solving for posterior mean...")
-  beta_hat <- as.numeric(solve_system(posterior_precision, Matrix::crossprod(X, y)))
 
-  fitted <- as.numeric(X %*% beta_hat)
-  residuals <- y - fitted
 
-  list(
-    posterior_mean = beta_hat,
-    fitted = fitted,
-    residuals = residuals,
-    X = X,
-    Lambda = Lambda,
-    y = y,
-    column_map = stacked$column_map,
-    fields = stacked$fields
-  )
+  class(out) <- "fitted_spatial_field"
+  return(out)
 }
 
 

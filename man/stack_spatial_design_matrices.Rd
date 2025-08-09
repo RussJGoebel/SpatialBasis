@@ -4,10 +4,12 @@
 \alias{stack_spatial_design_matrices}
 \title{Stack Spatial Design Matrices and Priors}
 \usage{
-stack_spatial_design_matrices(spatial_data_list)
+stack_spatial_design_matrices(spatial_data_list, compute_cholesky = FALSE)
 }
 \arguments{
 \item{spatial_data_list}{A list of \code{prepared_spatial_data} objects (one per covariate).}
+
+\item{compute_cholesky}{A boolean; if TRUE, the cholesky factor of the precision is saved using Matrix::chol}
 }
 \value{
 A list with components:

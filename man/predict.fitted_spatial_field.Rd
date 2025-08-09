@@ -2,20 +2,13 @@
 % Please edit documentation in R/predict.R
 \name{predict.fitted_spatial_field}
 \alias{predict.fitted_spatial_field}
-\title{Predict from a fitted spatial field (single or stacked)}
+\title{Predict from a fitted spatial field (coordinates or regions)}
 \usage{
 \method{predict}{fitted_spatial_field}(
   object,
   newdata,
-  integration_rule = NULL,
-  parallel = FALSE,
-  n_workers = future::availableCores(),
-  ...
-)
-
-\method{predict}{fitted_spatial_field}(
-  object,
-  newdata,
+  return_variance = FALSE,
+  diagonal_only = TRUE,
   integration_rule = NULL,
   parallel = FALSE,
   n_workers = future::availableCores(),
@@ -25,21 +18,24 @@
 \arguments{
 \item{object}{A \code{fitted_spatial_field} object.}
 
-\item{newdata}{Either a matrix/data.frame of coordinates (n x 2), or an \code{sf} object of prediction regions.}
+\item{newdata}{Either a matrix/data.frame of coords (n x 2), or an \code{sf} object of regions.}
 
-\item{integration_rule}{Optional: override the integration rule (only for regionwise).}
+\item{return_variance}{Logical: if TRUE, return posterior prediction variance.}
 
-\item{parallel}{Logical or integer: whether/how to parallelize integration (only for regionwise).}
+\item{diagonal_only}{Logical: if TRUE, only compute diagonal of the variance matrix.}
 
-\item{...}{Unused.}
+\item{integration_rule}{Optional integration rule (regionwise only).}
+
+\item{parallel}{Logical or integer: whether/how to parallelize integration (regionwise only).}
+
+\item{n_workers}{Parallel workers (regionwise only).}
+
+\item{...}{Additional args.}
 }
 \value{
-A numeric vector of predicted values.
-
-A numeric vector of predicted values.
+list(preds = \if{html}{\out{<vector>}}, posterior_variance = <vector or matrix, optional>)
 }
 \description{
-Estimates the posterior mean at new coordinates for one or more spatial fields.
-
-Estimates the posterior mean at new coordinates (pointwise) or over spatial regions (averaged).
+If \code{newdata} is an \code{sf} object, computes regional predictions via integration.
+If \code{newdata} is a coordinate matrix, computes pointwise predictions.
 }

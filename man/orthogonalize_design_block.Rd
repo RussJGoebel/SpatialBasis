@@ -2,19 +2,19 @@
 % Please edit documentation in R/spatial_field.R
 \name{orthogonalize_design_block}
 \alias{orthogonalize_design_block}
-\title{Orthogonalize a design block against others}
+\title{Orthogonalize a design block against others (sparse/scalable version)}
 \usage{
 orthogonalize_design_block(stacked, target_label)
 }
 \arguments{
-\item{stacked}{A list returned by \code{stack_spatial_design_matrices()}.}
+\item{stacked}{A list from \code{stack_spatial_design_matrices()}.}
 
-\item{target_label}{A string indicating which field to orthogonalize (e.g., "Random effect").}
+\item{target_label}{A string for the field to orthogonalize (e.g., "Spatial field").}
 }
 \value{
-A modified version of \code{stacked}, with the target block replaced by an orthogonalized version.
+A modified \code{stacked} object with orthogonalized design block and adjusted prior.
 }
 \description{
-Given a stacked spatial design object, modifies the design matrix so that
-the block corresponding to \code{target_label} is orthogonal to all others.
+Projects the target block onto the orthogonal complement of the other blocks
+using Gram-matrix projection. Preserves sparsity and scales to large n.
 }

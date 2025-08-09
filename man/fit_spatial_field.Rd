@@ -11,11 +11,14 @@ fit_spatial_field(
   region_list = NULL,
   integration_rule = NULL,
   parallel = FALSE,
+  return_cholesky = FALSE,
+  return_variance = FALSE,
+  diagonal_only = FALSE,
   ...
 )
 }
 \arguments{
-\item{spatial_data}{Either a \code{spatial_data} object (from \code{prepare_spatial_data()})
+\item{spatial_data}{Either a \code{prepared_spatial_data} object (from \code{prepare_spatial_data()})
 or a \code{spatial_field} object.}
 
 \item{observation_data}{If \code{spatial_data} is a \code{spatial_field}, the observation data (sf).}
@@ -28,17 +31,27 @@ or a \code{spatial_field} object.}
 
 \item{parallel}{Logical or integer: whether/how to parallelize integration.}
 
+\item{return_cholesky}{Logical: if \code{TRUE}, return the Cholesky factor of the posterior precision matrix.
+If \code{spatial_data} already includes a \code{cholesky_factor} entry, it will be reused.}
+
+\item{return_variance}{Logical: if \code{TRUE}, return the full posterior variance matrix (inverse of posterior precision).
+If \code{return_cholesky} is also \code{TRUE}, the Cholesky is used to compute the inverse efficiently.}
+
 \item{...}{Additional arguments passed to \code{prepare_spatial_data()} if needed.}
 }
 \value{
-A list containing:
-\itemize{
-\item posterior_mean: vector of estimated coefficients
-\item fitted: vector of fitted values
-\item residuals: vector of residuals
-\item design: the \code{spatial_data} used
+A list of class \code{"fitted_spatial_field"} containing:
+\describe{
+\item{posterior_mean}{Estimated coefficients of the spatial field.}
+\item{fitted}{Fitted values at observed locations.}
+\item{residuals}{Observed minus fitted values.}
+\item{X}{Design matrix used for estimation.}
+\item{spatial_data}{Original input or prepared spatial data object.}
+\item{cholesky_factor}{(Optional) Cholesky factor of the posterior precision matrix.}
+\item{posterior_variance}{(Optional) Posterior variance matrix of the coefficients.}
 }
 }
 \description{
-Estimates the posterior mean of the spatial random field.
+Estimates the posterior mean of the spatial random field coefficients, and optionally
+returns the Cholesky factor or full posterior variance matrix.
 }

@@ -9,6 +9,8 @@ predict_regionwise.fitted_spatial_field(
   newregions,
   integration_rule = NULL,
   parallel = FALSE,
+  return_variance = FALSE,
+  diagonal_only = TRUE,
   ...
 )
 }
@@ -21,10 +23,14 @@ predict_regionwise.fitted_spatial_field(
 
 \item{parallel}{Logical or integer: whether/how to parallelize the integration.}
 
-\item{...}{Unused.}
+\item{return_variance}{Logical: if TRUE, also return prediction variance.}
+
+\item{diagonal_only}{Logical: if TRUE, only compute the diagonal entries of the posterior.}
+
+\item{...}{Passed to integration or variance functions.}
 }
 \value{
-A numeric vector of predicted region means.
+list(preds = \if{html}{\out{<vector>}}, posterior_variance = <vector or matrix, optional>)
 }
 \description{
 Computes expected values over regions by integrating the spatial field basis functions.

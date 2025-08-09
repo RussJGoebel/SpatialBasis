@@ -4,12 +4,21 @@
 \alias{fit_stacked_spatial_field}
 \title{Fit a Stacked Spatial Model}
 \usage{
-fit_stacked_spatial_field(stacked, orthogonalize = NULL)
+fit_stacked_spatial_field(
+  stacked,
+  orthogonalize = NULL,
+  return_variance = FALSE,
+  diagonal_only = FALSE
+)
 }
 \arguments{
 \item{stacked}{A list returned by \code{stack_spatial_design_matrices()}.}
 
-\item{orthogonalize}{Optional. A string indicating which label (from \code{column_map}) to orthogonalize
+\item{orthogonalize}{Optional. A string indicating which label (from \code{column_map}) to orthogonalize}
+
+\item{return_variance}{Optional. A boolean; if TRUE returns the entire posterior covariance, otherwise returns only the diagonal.}
+
+\item{diagonal_only}{Optional.
 against all other fields. If NULL, no orthogonalization is done.}
 }
 \value{

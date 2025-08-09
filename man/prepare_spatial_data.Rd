@@ -11,6 +11,7 @@ prepare_spatial_data(
   region_list = NULL,
   integration_rule = NULL,
   parallel = FALSE,
+  compute_cholesky = FALSE,
   ...
 )
 }
@@ -27,6 +28,8 @@ prepare_spatial_data(
 
 \item{parallel}{Logical or integer: whether/how to parallelize integration.}
 
+\item{compute_cholesky}{Logical: whether to compute and return the Cholesky of XtX + Lambda.}
+
 \item{...}{Additional arguments passed to integration functions.}
 }
 \value{
@@ -34,11 +37,11 @@ A list with:
 \itemize{
 \item y: the response vector.
 \item X_spatial: the integrated design matrix.
-\item basis: the basis object.
-\item prior: the precision matrix.
-\item integration_rule: the integration rule used.
-\item region_list: the regions.
-\item observation_data: (optional) reference to input data.
+\item XtX: XᵗX matrix
+\item Lambda: prior precision matrix
+\item posterior_precision: XtX + Lambda
+\item cholesky_factor: Cholesky of XtX + Lambda (if requested)
+\item basis, prior, integration_rule, region_list, etc.
 }
 }
 \description{

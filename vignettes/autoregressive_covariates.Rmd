@@ -19,106 +19,44 @@ library(SpatialBasis)
 library(DownscalingPaper)
 ```
 
-```{r}
-# Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
-
-# Load packa gesGI
-library(sf)
-library(Matrix)
-#library(downscaling)  # replace with your actual package name
-
-response <- "synthetic_albedo"
-
-intersects_soundings <- sf::st_intersects(target_grid,soundings)
-intersects_soundings <- lapply(intersects_soundings,function(x){length(x) > 0})
-intersects_soundings <- unlist(intersects_soundings)
-
-how_many_intersects <- sf::st_intersects(target_grid,soundings)
-how_many_intersects <- lapply(how_many_intersects,function(x){length(x)})
-how_many_intersects <- unlist(how_many_intersects)
-
-# Step 1: Construct Basis and Priors
-
-# -- Response field: SAR prior on a geometry basis (from soundings)
-basis_resp <- make_geometry_basis(target_grid)
-prior_resp <- make_sar_prior(basis_resp,tau = 0.01, rho = 1)
-
-response_field <- make_spatial_field(
-  basis = basis_resp,
-  prior = prior_resp,
-  integration_rule = integration_rule_area_overlap(),
-  label = response
-)
-
-# Prepare integrated design matrices
-prepared_list <- prepare_spatial_data(
-  response_field,
-  observation_data = DownscalingPaper::soundings_paper,
-  response = response,
-  parallel = TRUE,
-  n_workers = future::availableCores(),
-  compute_cholesky = TRUE
-)
-
-
-
-# Fit the model
-(system.time(fit <- fit_spatial_field(
-  prepared_list, return_variance = TRUE
-)))
-
-# Step 3: Visualize Fitted Values
-
-soundings_paper <- DownscalingPaper::soundings_paper
-soundings_paper$fitted <- fit$fitted
-
-plot(soundings_paper[response], main = "Observed")
-plot(soundings_paper["fitted"], main = "Fitted (Posterior Mean)")
-
-# Step 4: Predict on Grid
-
-# Get coordinates from the target grid
-grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
-
-# Predict from fitted model
-system.time(pred <- predict(fit, newdata = grid_coords, return_variance = TRUE, diagonal_only = FALSE))
-target_grid$predicted <- pred$preds
-target_grid$var <- Matrix::diag(pred$posterior_variance)
-
-# Visualize predictions
-plot(target_grid["var"], main = "Predicted variance on Grid")
-
-lb <- target_grid$predicted-1.96*sqrt(target_grid$var)
-ub <- target_grid$predicted+1.96*sqrt(target_grid$var)
-
-mean(target_grid$mean_value > lb & target_grid$mean_value < ub)
-
-target_grid$outside <- target_grid$mean_value > lb & target_grid$mean_value < ub
-
-plot(target_grid["outside"], main = "Errors from approximate coverage interval")
-
-```
-
-
 
 ```{r}
 # Spatial Downscaling Example: SAR + Covariate with Piecewise Constant Basis
+
 
 # Load packagesGI
 library(sf)
 library(Matrix)
 #library(downscaling)  # replace with your actual package name
 
+covariate_rho <- 0.99
+
 response <- "synthetic_albedo"
 
 # Step 1: Construct Basis and Priors
 
 # -- Response field: SAR prior on a geometry basis (from soundings)
 basis_resp <- make_geometry_basis(target_grid)
-prior_resp <- make_sar_prior(basis_resp, tau = 0.06, rho = 1)
+prior_resp <- make_sar_prior(basis_resp, tau = 0.01, rho = 1)
 
+##################################################################
 basis_cov <- make_piecewise_constant_basis(SpatialBasis::boston_watercover,values = c(1,0))
 basis_prior <- make_flat_prior(basis_cov)
+
+prior_cov <- make_sar_prior(basis_resp, tau = 0.01, rho = covariate_rho)
+region_list <- build_region_list(target_grid)
+
+grid_values <- integrate_region_list_parallel(region_list,integration_rule_area_overlap(),basis_cov)
+
+W <- prior_cov$structure$W
+I_minus_rho_W <- Matrix::diag(dim(W)[1])-covariate_rho*W
+
+new_grid_values <- as.vector(solve(I_minus_rho_W,grid_values))
+target_grid$diffuse_water <- as.vector(new_grid_values)
+
+basis_cov <- make_piecewise_constant_basis(target_grid,values = new_grid_values)
+basis_prior <- make_flat_prior(basis_cov)
+
 
 basis_intercept <- make_constant_basis()
 prior_intercept <- make_flat_prior(basis_intercept)
@@ -150,7 +88,7 @@ stacked <- stack_spatial_design_matrices(prepared_list)
 
 # Fit the model
 (system.time(fit2 <- fit_stacked_spatial_field(
-  stacked, orthogonalize = TRUE, return_variance = FALSE
+  stacked, orthogonalize = FALSE, return_variance = FALSE
 )))
 
 # Step 3: Visualize Fitted Values
