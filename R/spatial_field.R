@@ -266,6 +266,7 @@ prepare_spatial_field_list <- function(
   stopifnot(response %in% names(observation_data))
 
   lapply(field_list, function(field) {
+
     prepare_spatial_data(
       spatial_field = field,
       observation_data = observation_data,
@@ -316,15 +317,38 @@ stack_spatial_design_matrices <- function(spatial_data_list, compute_cholesky = 
   X_blocks <- lapply(spatial_data_list, function(d) d$X_spatial)
   Lambda_blocks <- lapply(spatial_data_list, function(d) compute_precision(d$prior))
 
+  item_names <- names(spatial_data_list)
+  if(is.null(item_names)){item_names <- rep("",length(spatial_data_list))}
+
+  if(any(item_names != "")){message("Overwriting field labels with names given in prepared list.")}
+  for(n in 1:length(spatial_data_list)){
+
+    # Default to any names given in preparation
+    if(item_names[n] != ""){
+      spatial_data_list[[n]]$label <- item_names[n]
+    }
+
+    # Otherwise, use the labels and append their position in the spatial field for identifiability.
+    if(item_names[n] == ""){
+      spatial_data_list[[n]]$label <- paste(spatial_data_list[[n]]$label,n,sep = "_")
+    }
+
+  }
+
+
+
+
   # Track which columns belong to which variable
   column_map <- list()
   col_start <- 1
   for (d in spatial_data_list) {
     k <- ncol(d$X_spatial)
-    label <- d$label %||% "unnamed"
+    label <- if (!is.null(d$label) && nzchar(d$label)) d$label else "unnamed"
     column_map[[label]] <- col_start:(col_start + k - 1)
     col_start <- col_start + k
   }
+
+
 
   # Stack columns and construct block diagonal precision
   X_stacked <- do.call(cbind, X_blocks)
@@ -589,7 +613,7 @@ fit_stacked_spatial_field <- function(stacked, orthogonalize = NULL,return_varia
   if (return_variance) {
     out$posterior_variance <- compute_posterior_variance(
       precision_matrix = posterior_precision,
-      cholesky_factor = stacked$cholesky_factor,
+      cholesky_factor = Matrix::chol(posterior_precision),
       diagonal_only = diagonal_only)
      measurement_error <- compute_posterior_measurement_error(out$posterior_mean,out$X,out$Lambda,out$y)
      out$posterior_variance <- out$posterior_variance*measurement_error$sigma2_mode

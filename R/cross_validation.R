@@ -1,5 +1,6 @@
 #' Cross-Validation for Tau in a Single Spatial Field
 #'
+#'
 #' Performs K-fold cross-validation to select the regularization parameter \eqn{\tau}
 #' (precision multiplier) for a single spatial field model.
 #'
@@ -38,7 +39,8 @@
 #' @export
 cv_tau_spatial_field <- function(prepared_spatial_data, tau_grid,
                                  linear_solver = c("cg", "pcg", "cholesky", "matrix_free_cg"),
-                                 k = 5, mc.cores = parallel::detectCores(), show_progress = TRUE) {
+                                 k = 5, mc.cores = parallel::detectCores(), show_progress = TRUE,
+                                 folds = sample(rep(seq_len(k), length.out = length(prepared_spatial_data$y)))) {
 
   linear_solver <- match.arg(linear_solver)
   if (!requireNamespace("future.apply", quietly = TRUE)) stop("Please install 'future.apply'.")
@@ -51,7 +53,6 @@ cv_tau_spatial_field <- function(prepared_spatial_data, tau_grid,
   X <- prepared_spatial_data$X_spatial
   y <- prepared_spatial_data$y
   prior_template <- prepared_spatial_data$prior
-  folds <- sample(rep(seq_len(k), length.out = length(y)))
 
   eval_fn <- function(tau, X, y, folds, linear_solver, prior_template, k) {
     fold_errors <- numeric(k)
@@ -164,7 +165,8 @@ cv_tau_spatial_field <- function(prepared_spatial_data, tau_grid,
 #' @export
 cv_tau_stacked_spatial_field <- function(prepared_spatial_field_list, tau_grid,
                                  linear_solver = c("cg", "pcg", "cholesky", "matrix_free_cg"),
-                                 k = 5, mc.cores = parallel::detectCores(), show_progress = TRUE) {
+                                 k = 5, mc.cores = parallel::detectCores(), show_progress = TRUE,
+                                 folds = sample(rep(seq_len(k), length.out = length(prepared_spatial_field_list[[1]]$y)))) {
 
   linear_solver <- match.arg(linear_solver)
   if (!requireNamespace("future.apply", quietly = TRUE)) stop("Please install 'future.apply'.")
@@ -183,8 +185,6 @@ cv_tau_stacked_spatial_field <- function(prepared_spatial_field_list, tau_grid,
   column_map <- stacked$column_map[[1]]
 
   prior_template <- prepared_spatial_field_list[[1]]$prior
-
-  folds <- sample(rep(seq_len(k), length.out = length(y)))
 
   eval_fn <- function(tau, X, y, Lambda, column_map, folds, linear_solver, prior_template, k) {
     fold_errors <- numeric(k)

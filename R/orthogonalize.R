@@ -30,11 +30,12 @@ orthogonalize_matrices <- function(X, column_map, target_label) {
 
   # Compute A without forming projector
   XtX_other <- Matrix::crossprod(X_other)
-  chol_XtX  <- Matrix::chol(XtX_other)
+  chol_XtX <- Matrix::Cholesky(XtX_other, LDL = FALSE)  # factorization object
   RHS       <- Matrix::crossprod(X_other, X_target)
 
   # Sparse-safe Cholesky solve
-  A <- Matrix::solve(chol_XtX, Matrix::solve(t(chol_XtX), RHS))
+  A <- Matrix::solve(chol_XtX, RHS, system = "A")
+  #A <- Matrix::solve(chol_XtX, Matrix::solve(t(chol_XtX), RHS))
 
   # Residualize
   X_target_proj <- X_target - X_other %*% A

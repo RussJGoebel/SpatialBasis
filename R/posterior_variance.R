@@ -43,7 +43,7 @@ compute_posterior_variance <- function(precision_matrix,
       n <- ncol(precision_matrix)
       I_n <- Matrix::Diagonal(n)
       V <- try(Matrix::solve(precision_matrix, I_n), silent = TRUE)
-      if (inherits(V, "try-error")) {
+      if (inherits(V, "try-errormin")) {
         if (safe) return(NULL) else stop("Matrix inversion failed")
       }
       return(as.numeric(Matrix::diag(V)))
@@ -72,7 +72,7 @@ compute_posterior_variance <- function(precision_matrix,
 compute_posterior_measurement_error <- function(posterior_mean, X, Lambda, y) {
   message("Computing posterior variance conditional on posterior mode of sigma^2...")
 
-  a_0 <- 0 #1
+  a_0 <- 0 # 1
   b_0 <- 0 # 1
 
   y <- y

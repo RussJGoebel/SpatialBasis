@@ -41,7 +41,7 @@ predict_regionwise.fitted_spatial_field <- function(
     Vbeta <- object$posterior_variance
     if (is.null(Vbeta) || is.null(dim(Vbeta))) {
       Vbeta <- compute_posterior_variance(
-        object$XtX + object$spatial_data$Lambda,
+        object$XtX + object$Lambda,
         cholesky_factor = object$cholesky_factor,
         diagonal_only   = FALSE
       )
@@ -53,7 +53,7 @@ predict_regionwise.fitted_spatial_field <- function(
 
     XV  <- X_new %*% Vbeta
     Var <- tcrossprod(XV, X_new)  # X V X'
-    if (diagonal_only) Var <- rowSums(X_new * (XV))  # diag(X V X') efficiently
+    if (diagonal_only) Var <- Matrix::diag(Var)  # diag(X V X') efficiently
 
     return(list(preds = preds, posterior_variance = Var))
   }
@@ -112,7 +112,7 @@ predict_regionwise.fitted_spatial_field <- function(
     Vbeta <- object$posterior_variance
     if (is.null(Vbeta) || is.null(dim(Vbeta))) {
       Vbeta <- compute_posterior_variance(
-        object$XtX + object$spatial_data$Lambda,
+        object$XtX + object$Lambda,
         cholesky_factor = object$cholesky_factor,
         diagonal_only   = FALSE
       )
@@ -124,7 +124,7 @@ predict_regionwise.fitted_spatial_field <- function(
 
     XV  <- X_new %*% Vbeta
     Var <- tcrossprod(XV, X_new)  # X V X'
-    if (diagonal_only) Var <- rowSums(X_new * (XV))
+    if (diagonal_only) Var <- Matrix::diag(Var)
 
     return(list(preds = preds, posterior_variance = Var))
   }
@@ -197,7 +197,7 @@ predict.fitted_spatial_field <- function(object, newdata,
 
     PV  <- phi %*% Vbeta
     Var <- tcrossprod(PV, phi)  # phi V phi'
-    if (diagonal_only) Var <- rowSums(phi * (PV))
+    if (diagonal_only) Var <- Matrix::diag(Var)
 
     return(list(preds = preds, posterior_variance = Var))
   }
@@ -260,7 +260,7 @@ predict.fitted_spatial_field <- function(object, newdata,
 
     PV  <- phi_all %*% Vbeta
     Var <- tcrossprod(PV, phi_all)  # phi_all V phi_all'
-    if (diagonal_only) Var <- rowSums(phi_all * (PV))
+    if (diagonal_only) Var <- Matrix::diag(Var)
 
     return(list(preds = preds, posterior_variance = Var))
   }

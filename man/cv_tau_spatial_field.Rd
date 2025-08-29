@@ -10,7 +10,8 @@ cv_tau_spatial_field(
   linear_solver = c("cg", "pcg", "cholesky", "matrix_free_cg"),
   k = 5,
   mc.cores = parallel::detectCores(),
-  show_progress = TRUE
+  show_progress = TRUE,
+  folds = sample(rep(seq_len(k), length.out = length(prepared_spatial_data$y)))
 )
 }
 \arguments{

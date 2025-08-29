@@ -41,7 +41,7 @@ how_many_intersects <- unlist(how_many_intersects)
 
 # -- Response field: SAR prior on a geometry basis (from soundings)
 basis_resp <- make_geometry_basis(target_grid)
-prior_resp <- make_sar_prior(basis_resp,tau = 0.01, rho = 1)
+prior_resp <- make_sar_prior(basis_resp,tau = 0.06, rho = 1)
 
 response_field <- make_spatial_field(
   basis = basis_resp,
@@ -111,11 +111,23 @@ library(Matrix)
 
 response <- "synthetic_albedo"
 
+alph = 1
+
+W <- compute_W_matrix(target_grid,grid_shape = "other")
+
+target_grid$proportion_6 = ifelse(is.na(target_grid$proportion_6),0,target_grid$proportion_6)
+
+landcover_weights <- outer(target_grid$proportion_6,target_grid$proportion_6,function(x,y){1-alph*abs(x-y)})
+
+W_new <- W*landcover_weights# (1-alph)*W+alpha*W*landcover_weights ?? =W $W-alpha 
+
+W_new <- W#Matrix::diag(1/rowSums(W_new)) %*% W_new
+
 # Step 1: Construct Basis and Priors
 
 # -- Response field: SAR prior on a geometry basis (from soundings)
 basis_resp <- make_geometry_basis(target_grid)
-prior_resp <- make_sar_prior(basis_resp, tau = 0.06, rho = 1)
+prior_resp <- make_sar_prior(basis_resp, tau = 0.06, rho = 0.99,W = W_new)
 
 basis_cov <- make_piecewise_constant_basis(SpatialBasis::boston_watercover,values = c(1,0))
 basis_prior <- make_flat_prior(basis_cov)
@@ -137,7 +149,7 @@ intercept_field <- make_spatial_field(basis = basis_intercept, prior = prior_int
 
 # Prepare integrated design matrices
 prepared_list <- prepare_spatial_field_list(
-  list(resid = response_field,cov = covariate_field,intercept_field = intercept_field),
+  list(resid = response_field,cov = covariate_field,intercept = intercept_field),
   observation_data = DownscalingPaper::soundings_paper,
   response = response,
   parallel = TRUE,
@@ -167,9 +179,14 @@ plot(soundings_paper["fitted"], main = "Fitted (Posterior Mean)")
 grid_coords <- sf::st_coordinates(sf::st_centroid(target_grid))
 
 # Predict from fitted model
-system.time(pred <- predict(fit, newdata = grid_coords, return_variance = FALSE, diagonal_only = FALSE))
+system.time(pred <- predict(fit2, newdata = target_grid, return_variance = TRUE, diagonal_only = TRUE))
 target_grid$predicted <- pred$preds
-target_grid$var <- Matrix::diag(pred$posterior_variance)
+target_grid$var <- pred$posterior_variance
+
+l <- target_grid$mean_value > target_grid$predicted-1.96*sqrt(target_grid$var)
+u <- target_grid$mean_value < target_grid$predicted+1.96*sqrt(target_grid$var)
+
+mean(l[intersects_soundings] & u[intersects_soundings])
 
 # Visualize predictions
 plot(target_grid["var"], main = "Predicted variance on Grid")

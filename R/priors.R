@@ -47,14 +47,17 @@ make_ridge_prior <- function(basis, tau = 1) {
   if (tau <= 0) stop("tau must be positive.")
   k <- basis$k
   structure(
-    list(k = k, tau = tau),
+    list(k = k,hyperparameters = list(
+      rho = rho,
+      tau = tau
+    )),
     class = c("ridge", "prior")
   )
 }
 
 #' @export
 compute_precision.ridge <- function(prior) {
-  Matrix::Diagonal(prior$k, prior$tau)
+  Matrix::Diagonal(prior$k, prior$hyperparameters$tau)
 }
 
 #' @export
